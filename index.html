@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Reportes Fotográficos Vial</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1e293b">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Librerías Externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Ajustes específicos que Tailwind no hace por defecto */
+        .celda-foto {
+            width: 200px;
+            min-width: 200px;
+            max-width: 200px;
+            height: auto;
+            padding: 0 !important;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        .celda-foto:hover::after {
+            content: '🔍 Ampliar';
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.6);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1.2rem;
+            backdrop-filter: blur(2px);
+            transition: all 0.3s ease;
+        }
+        .foto-miniatura { 
+            width: 100%; 
+            height: auto; 
+            object-fit: contain; 
+            display: block; 
+        }
+        /* Nombre del archivo oculto visualmente dentro de la celda foto */
+        .nombre-foto-oculto {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+            font-size: 0;
+        }
+        /* Scrollbar personalizada */
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .modal-glass {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+
+        /* Clase para texto vertical leído de abajo hacia arriba */
+        .texto-vertical {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            white-space: nowrap;
+        }
+
+        /* Animación suave para la imagen del modal */
+        .img-zoom-in {
+            animation: zoomIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes zoomIn {
+            0% { opacity: 0; transform: scale(0.95); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Loader */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #0ea5e9; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+    <!-- Librerías para PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <!-- Librería para Excel XLSX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+    <style>
+        /* Dropdown Excel */
+        .excel-dropdown { position: relative; display: inline-block; }
+        .excel-dropdown-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            min-width: 220px;
+            background: #0b132b;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 100;
+            animation: dropIn 0.15s ease;
+        }
+        @keyframes dropIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+        .excel-dropdown-menu.open { display: block; }
+        .excel-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 11px 16px;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            transition: background 0.2s;
+            text-align: left;
+        }
+        .excel-dropdown-item:hover { background: rgba(255,255,255,0.1); }
+        .excel-dropdown-item .badge {
+            margin-left: auto;
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        /* Ajuste estético de la barra de desplazamiento de la tabla */
+        .custom-table-scroll::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        .custom-table-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9; /* slate-100 */
+            /* Magia pura: empujar la barra de desplazamiento hacia abajo para que no toque el thead */
+            margin-top: 48px; 
+            border-radius: 0 0 8px 0;
+        }
+        .custom-table-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1; /* slate-300 */
+            border-radius: 10px;
+            border: 2px solid #f1f5f9;
+        }
+        .custom-table-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; /* slate-400 */
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col font-sans overflow-hidden">
+
+    <!-- Sidebar -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-slate-900/50 z-40 hidden opacity-0 transition-opacity duration-300" onclick="toggleSidebar()"></div>
+    <div id="sidebar" class="fixed top-0 left-0 w-64 h-full bg-white shadow-2xl z-50 transform -translate-x-full transition-transform duration-300 flex flex-col">
+        <div class="p-6 border-b border-slate-200 bg-[#0b132b] flex items-center justify-between">
+            <img src="LOGOS/LOGO_FINAL.png" alt="Logo" class="h-10 w-auto object-contain">
+            <button onclick="toggleSidebar()" class="text-slate-300 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="flex-1 p-4 flex flex-col gap-2">
+            <button onclick="cambiarVista('registro')" id="btn-nav-registro" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-colors bg-[#0ea5e9]/10 text-[#0ea5e9]">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
+                Registro Fotos
+            </button>
+            <button onclick="cambiarVista('asistencia')" id="btn-nav-asistencia" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-colors text-slate-600 hover:bg-slate-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                Asistencia Campo
+            </button>
+            <button onclick="cambiarVista('metrados')" id="btn-nav-metrados" class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-colors text-slate-600 hover:bg-slate-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                Metrados
+            </button>
+        </div>
+    </div>
+
+    <!-- Header Premium (Azul Metálico Oscuro) -->
+    <header class="bg-[#0b132b] text-white shadow-md z-20 relative border-b border-[#1c2541]">
+        <div class="px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <div class="flex items-center gap-1.5 ml-2">
+                    <img src="LOGOS/ICONO_SF.png" alt="Icono" class="h-[60px] w-auto object-contain drop-shadow-md">
+                    <img src="LOGOS/LOGO_FINAL.png" alt="Logo Nombre" class="h-12 w-auto object-contain drop-shadow-md">
+                </div>
+            </div>
+            <!-- Contenedor de acciones dinámico según la vista -->
+            <div id="header-actions-container" class="flex items-center gap-3">
+                
+                <!-- Acciones REGISTRO / METRADOS -->
+                <div id="header-actions-main" class="flex items-center gap-3">
+                    <!-- Dropdown Exportar -->
+                    <div class="relative group">
+                        <button class="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed border border-white/10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            Exportar Data
+                        </button>
+                        <!-- Menú desplegable -->
+                        <div class="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 overflow-hidden">
+                            <button id="btn-export-csv" class="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2 border-b border-slate-100">
+                                <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                CSV (Sólo Texto)
+                            </button>
+                            <button id="btn-export-xlsx" class="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                EXCEL (Con Enlaces)
+                            </button>
+                        </div>
+                    </div>
+                    <button id="btn-export-pdf" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        Exportar PDF
+                    </button>
+                    <button id="btn-download-zip" class="flex items-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Descargar Fotos Visibles
+                    </button>
+                </div>
+
+                <!-- Acciones ASISTENCIA -->
+                <div id="header-actions-asistencia" class="hidden flex items-center gap-4">
+                    <!-- Leyenda -->
+                    <div class="flex items-center gap-2 text-[10px] font-bold text-slate-300 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg uppercase tracking-wide shadow-inner">
+                        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>P: Presente</span>
+                        <span class="text-white/20">|</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500 shadow-sm shadow-red-500/50"></span>F: Falta</span>
+                        <span class="text-white/20">|</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50"></span>D: Descanso Médico</span>
+                        <span class="text-white/20">|</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50"></span>L: Permiso</span>
+                        <span class="text-white/20">|</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-500 shadow-sm shadow-purple-500/50"></span>C: Comisión</span>
+                    </div>
+
+                    <button id="btn-asist-export-xlsx" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-emerald-500/30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        Exportar Excel
+                    </button>
+                    <button id="btn-asist-export-pdf" class="flex items-center gap-2 bg-rose-700/80 hover:bg-rose-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-rose-600/30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        Exportar PDF
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </header>
+
+    <div id="view-registro" class="flex flex-col flex-1 min-h-0 w-full relative">
+    <!-- Panel de Filtros -->
+    <div class="bg-white border-b border-slate-200 z-10 shadow-sm relative">
+        <div class="px-6 py-4 flex flex-wrap gap-5 items-end">
+            <div class="w-32 min-w-[128px]">
+                <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Grupo</label>
+                <select id="filter-grupo" class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                    <option value="ALL">Todos</option>
+                </select>
+            </div>
+            
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Usuario</label>
+                <select id="filter-usuario" class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                    <option value="ALL">Todos los usuarios</option>
+                </select>
+            </div>
+            
+            <div class="flex items-end gap-2">
+                <div class="w-40 min-w-[160px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Filtro Fecha</label>
+                    <select id="filter-fecha-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                        <option value="ALL">Todas las fechas</option>
+                        <option value="eq">IGUAL A:</option>
+                        <option value="gte">MAYOR IGUAL A:</option>
+                        <option value="lte">MENOR IGUAL A:</option>
+                    </select>
+                </div>
+                <div class="w-40 min-w-[160px]">
+                    <input type="date" id="filter-fecha-val" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm bg-slate-50 hover:bg-white focus:bg-white text-slate-700">
+                </div>
+            </div>
+            
+            <div class="flex-1 min-w-[250px]">
+                <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Buscar en Descripción</label>
+                <div class="relative">
+                    <svg class="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <input type="text" id="filter-descripcion" placeholder="Escribe una palabra..." class="w-full border border-slate-300 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm bg-slate-50 hover:bg-white focus:bg-white">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between flex-1 min-w-[200px] mt-1 mb-1.5 px-2">
+                <span id="counter-info" class="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
+                    Cargando...
+                </span>
+                <button id="btn-buscar" class="ml-auto bg-slate-900 hover:bg-slate-800 text-white font-bold p-2 sm:px-6 sm:py-2.5 rounded-full sm:rounded-xl flex items-center justify-center gap-2 transition-all shadow-md active:scale-95">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <span class="hidden sm:inline text-sm">BUSCAR</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenedor Principal (Tabla) -->
+    <main class="flex-1 overflow-auto p-6 bg-slate-50 relative flex justify-center" id="main-container">
+        <!-- Loader inicial -->
+        <div id="loading-overlay" class="absolute inset-0 bg-slate-50 z-20 flex flex-col items-center justify-center">
+            <div class="loader mb-4"></div>
+            <p class="text-slate-500 font-medium animate-pulse">Sincronizando con Google Sheets...</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col w-full max-w-7xl mx-auto">
+            <div class="overflow-x-auto overflow-y-auto w-full max-h-[70vh] custom-table-scroll">
+                <table class="mx-auto text-left border-collapse min-w-[1000px]">
+                    <thead class="sticky top-0 z-20 shadow-md bg-slate-50">
+                        <tr class="bg-slate-50 border-b-2 border-[#1c2541] text-[11px] uppercase tracking-wider text-slate-500 font-bold">
+                            <th class="px-2 py-4 w-6 text-center">
+                                ITEM
+                            </th>
+                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('grupo')">
+                                <div id="sort-pri-grupo" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="texto-vertical mx-auto pb-5">Grupo</div>
+                                <div id="sort-btn-grupo" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-grupo" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('usuario')">
+                                <div id="sort-pri-usuario" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="texto-vertical mx-auto pb-5">Usuario</div>
+                                <div id="sort-btn-usuario" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-usuario" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('fecha')">
+                                <div id="sort-pri-fecha" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="texto-vertical mx-auto pb-5">Fecha</div>
+                                <div id="sort-btn-fecha" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-fecha" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                            <th class="px-6 py-4 w-[200px] min-w-[200px] max-w-[200px] border-l border-slate-200 text-center cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('descripcion')">
+                                <div id="sort-pri-descripcion" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="pb-3">Descripción</div>
+                                <div id="sort-btn-descripcion" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-descripcion" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('utmNorte')">
+                                <div id="sort-pri-utmNorte" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="texto-vertical mx-auto pb-5">UTM Norte</div>
+                                <div id="sort-btn-utmNorte" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-utmNorte" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('utmEste')">
+                                <div id="sort-pri-utmEste" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="texto-vertical mx-auto pb-5">UTM Este</div>
+                                <div id="sort-btn-utmEste" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-utmEste" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                            <th class="px-6 py-4 w-[200px] text-center border-l border-slate-200 bg-slate-100/50 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('nombreFoto')">
+                                <div id="sort-pri-nombreFoto" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="pb-3">Evidencia Fotográfica</div>
+                                <div id="sort-btn-nombreFoto" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-nombreFoto" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                                    </svg>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-slate-300" id="tabla-body">
+                        <!-- Las filas se inyectan dinámicamente aquí -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Controles de Paginación -->
+            <div class="bg-slate-50/80 backdrop-blur border-t border-slate-200 px-6 py-4 flex items-center justify-between" id="pagination-controls">
+                <div class="text-sm font-medium text-slate-500" id="pagination-info">
+                    Mostrando 0 a 0 de 0 registros
+                </div>
+                <div class="flex gap-2">
+                    <button id="btn-prev-page" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-400 hover:text-brand-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-semibold shadow-sm">Anterior</button>
+                    <button id="btn-next-page" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-400 hover:text-brand-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-semibold shadow-sm">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    </main>
+    </div> <!-- End view-registro -->
+
+    <!-- VISTA ASISTENCIA -->
+    <div id="view-asistencia" class="hidden flex flex-col flex-1 min-h-0 w-full relative bg-slate-50">
+        <!-- Panel de Filtros Asistencia -->
+        <div class="bg-white border-b border-slate-200 z-10 shadow-sm relative">
+            <div class="px-6 py-4 flex flex-wrap gap-5 items-end">
+                <div class="w-32 min-w-[128px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Grupo</label>
+                    <select id="asist-filter-grupo" class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                        <option value="ALL">Todos</option>
+                    </select>
+                </div>
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Cargo</label>
+                    <select id="asist-filter-cargo" class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                        <option value="ALL">Todos los cargos</option>
+                    </select>
+                </div>
+                <div class="flex-1 min-w-[250px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Buscar Nombre</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </div>
+                        <input type="text" id="asist-filter-nombre" placeholder="Ej. juan perez..." class="w-full border border-slate-300 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 focus:bg-white hover:bg-white">
+                    </div>
+                </div>
+                <button id="asist-btn-buscar" class="flex items-center gap-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 shadow-lg shadow-[#0ea5e9]/30">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    Buscar
+                </button>
+            </div>
+        </div>
+
+        <!-- Tabla Asistencia -->
+        <main class="flex-1 overflow-hidden p-6 pb-4 relative flex flex-col justify-start z-10">
+            <!-- Pestañas Superiores (Meses) que salen de la tabla hacia arriba -->
+            <div class="flex gap-1 z-0 relative w-full pl-6 -mb-[1px] overflow-x-auto custom-table-scroll" id="asist-tabs-meses">
+                <!-- Dinámico -->
+            </div>
+
+            <!-- Contenedor Tabla -->
+            <div class="bg-white rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.05)] border border-slate-200 overflow-hidden relative flex flex-col flex-1 min-h-0 z-10">
+                <div class="overflow-auto custom-table-scroll flex-1 relative w-full">
+                    <table class="w-full text-sm text-left border-collapse table-fixed" style="min-width: 1400px;">
+                        <thead class="text-xs text-slate-500 uppercase bg-slate-50/90 backdrop-blur sticky top-0 z-40 border-b border-slate-200" id="asist-tabla-head">
+                            <!-- Cabeceras generadas dinámicamente -->
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-300" id="asist-tabla-body">
+                            <!-- Filas generadas dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- Pestañas Inferiores (OFICIAL / NO OFICIAL) que cuelgan de la tabla -->
+            <div class="flex gap-1 z-0 relative w-full pl-6 -mt-[1px]">
+                <button onclick="asistCambiarTipo('OFICIAL')" id="asist-tab-oficial" class="px-6 py-1.5 rounded-b-lg text-xs transition-all border-t-0">PERSONAL OFICIAL</button>
+                <button onclick="asistCambiarTipo('EXTRA')" id="asist-tab-extra" class="px-6 py-1.5 rounded-b-lg text-xs transition-all border-t-0">PERSONAL EXTRA (Sin Padrón)</button>
+            </div>
+        </main>
+        
+        <!-- Loading Overlay Asistencia -->
+        <div id="asist-loading" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-50 hidden flex-col items-center justify-center">
+            <div class="loader mb-4"></div>
+            <p class="text-[#0ea5e9] font-semibold text-lg" id="asist-loading-text">Sincronizando Asistencia...</p>
+        </div>
+    </div> <!-- End view-asistencia -->
+
+    <!-- VISTA METRADOS -->
+    <div id="view-metrados" class="hidden flex flex-col flex-1 min-h-0 w-full relative bg-slate-50">
+        <!-- Panel de Filtros Metrados -->
+        <div class="bg-white border-b border-slate-200 z-10 shadow-sm relative">
+            <div class="px-6 py-4 flex flex-wrap gap-4 items-end">
+
+                <!-- FECHA -->
+                <div class="flex items-end gap-2">
+                    <div class="w-44 min-w-[176px]">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Filtro Fecha</label>
+                        <select id="met-filter-fecha-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                            <option value="ALL">Todas las fechas</option>
+                            <option value="eq">IGUAL A:</option>
+                            <option value="gte">MAYOR IGUAL A:</option>
+                            <option value="lte">MENOR IGUAL A:</option>
+                        </select>
+                    </div>
+                    <div class="w-40 min-w-[160px]">
+                        <input type="date" id="met-filter-fecha-val" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white">
+                    </div>
+                </div>
+
+                <!-- KM INICIAL -->
+                <div class="flex items-end gap-2">
+                    <div class="w-44 min-w-[176px]">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">KM Inicial</label>
+                        <select id="met-filter-kmi-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                            <option value="ALL">Todos</option>
+                            <option value="eq">IGUAL A:</option>
+                            <option value="gte">MAYOR IGUAL A:</option>
+                            <option value="lte">MENOR IGUAL A:</option>
+                        </select>
+                    </div>
+                    <div class="w-32 min-w-[128px]">
+                        <input type="number" id="met-filter-kmi-val" placeholder="Ej: 2000" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white">
+                    </div>
+                </div>
+
+                <!-- KM FINAL -->
+                <div class="flex items-end gap-2">
+                    <div class="w-44 min-w-[176px]">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">KM Final</label>
+                        <select id="met-filter-kmf-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                            <option value="ALL">Todos</option>
+                            <option value="eq">IGUAL A:</option>
+                            <option value="gte">MAYOR IGUAL A:</option>
+                            <option value="lte">MENOR IGUAL A:</option>
+                        </select>
+                    </div>
+                    <div class="w-32 min-w-[128px]">
+                        <input type="number" id="met-filter-kmf-val" placeholder="Ej: 2500" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white">
+                    </div>
+                </div>
+
+                <!-- LADO -->
+                <div class="w-28 min-w-[112px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Lado</label>
+                    <select id="met-filter-lado" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                        <option value="ALL">Todos</option>
+                    </select>
+                </div>
+
+                <!-- TRAMO -->
+                <div class="w-36 min-w-[144px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Tramo</label>
+                    <select id="met-filter-tramo" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
+                        <option value="ALL">Todos</option>
+                    </select>
+                </div>
+
+                <!-- BUSCAR EN PARTIDA -->
+                <div class="flex-1 min-w-[220px]">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Buscar en Partida</label>
+                    <div class="relative">
+                        <svg class="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" id="met-filter-partida" placeholder="Ej: parchado, limpieza..." class="w-full border border-slate-300 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white focus:bg-white">
+                    </div>
+                </div>
+
+                <!-- Counter + Botón Buscar -->
+                <div class="flex items-center gap-3 mt-1">
+                    <span id="met-counter-info" class="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 whitespace-nowrap">Cargando...</span>
+                    <button id="met-btn-buscar" class="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md active:scale-95">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <span class="text-sm">BUSCAR</span>
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Tabla Metrados -->
+        <main id="met-main-container" class="flex-1 overflow-auto p-6 bg-slate-50 relative flex justify-center">
+            <!-- Loader -->
+            <div id="met-loading" class="absolute inset-0 bg-slate-50 z-20 flex flex-col items-center justify-center">
+                <div class="loader mb-4"></div>
+                <p class="text-slate-500 font-medium animate-pulse">Sincronizando METRADOS con Google Sheets...</p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col w-full max-w-[1600px] mx-auto">
+                <div class="overflow-x-auto overflow-y-auto w-full max-h-[65vh] custom-table-scroll">
+                    <table class="mx-auto text-left border-collapse" style="min-width: 1600px;">
+                        <thead class="sticky top-0 z-20 shadow-md bg-slate-50" id="met-tabla-head">
+                            <!-- Generado dinámicamente por metrados.js -->
+                        </thead>
+                        <tbody class="bg-white divide-y divide-slate-300" id="met-tabla-body">
+                            <!-- Filas generadas dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginación -->
+                <div class="bg-slate-50/80 backdrop-blur border-t border-slate-200 px-6 py-4 flex items-center justify-between">
+                    <div class="text-sm font-medium text-slate-500" id="met-pagination-info">Cargando...</div>
+                    <div class="flex gap-2">
+                        <button id="met-btn-prev" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-semibold shadow-sm">Anterior</button>
+                        <button id="met-btn-next" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-semibold shadow-sm">Siguiente</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div> <!-- End view-metrados -->
+
+    <!-- Script principal -->
+    <script src="script.js?v=2"></script>
+    <script src="asistencia.js?v=1"></script>
+    <script src="metrados.js?v=1"></script>
+</body>
+</html>
