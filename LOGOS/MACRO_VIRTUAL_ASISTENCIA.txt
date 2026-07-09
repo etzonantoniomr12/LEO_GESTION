@@ -1,0 +1,411 @@
+/**
+ * Sincronizador v2 - Macro de Asistencia Consolidada
+ * Lee datos planos de ASISTENCIA_BRUTO y el padrón de PERSONAL.
+ * Genera el archivo REGISTRO_ASISTENCIA_YYYY con pestañas mensuales.
+ * VERSIÓN: Incremental (Columna OK), Optimizada con getRangeList y moveTo.
+ */
+
+function generarReportesMensuales() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaBruto = spreadsheet.getSheetByName("ASISTENCIA_BRUTO");
+  var hojaPersonal = spreadsheet.getSheetByName("PERSONAL");
+  
+  if (!hojaBruto || !hojaPersonal) {
+    SpreadsheetApp.getUi().alert("Error: Faltan las pestañas ASISTENCIA_BRUTO o PERSONAL.");
+    return;
+  }
+  
+  var datosBruto = hojaBruto.getDataRange().getValues();
+  var datosPersonal = hojaPersonal.getDataRange().getValues();
+  
+  if (datosBruto.length <= 1) {
+    SpreadsheetApp.getUi().alert("No hay datos de asistencia para procesar.");
+    return;
+  }
+  
+  // Escribir cabecera ESTADO_REPORTE si no existe en la Columna H (índice 7) de ASISTENCIA_BRUTO
+  var cabeceraH = hojaBruto.getRange(1, 8).getValue();
+  if (!cabeceraH || cabeceraH.toString().trim() === "") {
+    hojaBruto.getRange(1, 8).setValue("ESTADO_REPORTE")
+        .setBackground("#0A2351").setFontColor("#FFFFFF").setFontWeight("bold");
+  }
+  
+  // 1. Mapear Padron Oficial de PERSONAL
+  var padronOficial = {};
+  var capatacesPorGrupo = {};
+  
+  // Agregar cabecera ESTADO si no existe en la Columna G (índice 6) de PERSONAL
+  var cabeceraG = hojaPersonal.getRange(1, 7).getValue();
+  if (!cabeceraG || cabeceraG.toString().trim() === "") {
+    hojaPersonal.getRange(1, 7).setValue("ESTADO")
+        .setBackground("#0A2351").setFontColor("#FFFFFF").setFontWeight("bold");
+  }
+  
+  for (var i = 1; i < datosPersonal.length; i++) {
+    var filaP = datosPersonal[i];
+    var grupo = filaP[1];
+    var capataz = filaP[2];
+    var dni = filaP[3].toString().trim();
+    var nombre = filaP[4];
+    var cargo = filaP[5];
+    var estado = filaP[6] ? filaP[6].toString().trim().toUpperCase() : "ACTIVO";
+    
+    if (!grupo || !dni) continue;
+    
+    if (!padronOficial[grupo]) padronOficial[grupo] = [];
+    padronOficial[grupo].push({ dni: dni, nombre: nombre, cargo: cargo, estado: estado });
+    if (capataz) capatacesPorGrupo[grupo] = capataz;
+  }
+  
+  // 2. Procesar ASISTENCIA_BRUTO (Detección de Cambios)
+  var asistenciasAgrupadas = {}; 
+  var mesesConCambios = {}; // Guardará "AÑO-MES" para saber qué redibujar
+  var filasNuevasIndices = []; // Guardará las filas que no tienen "OK" para sellarlas luego
+  
+  // PASO 2.1: Escaneo rápido para detectar qué meses tienen filas nuevas
+  for (var i = 1; i < datosBruto.length; i++) {
+    var filaA = datosBruto[i];
+    var estadoH = filaA[7] ? filaA[7].toString().trim().toUpperCase() : ""; // Columna H
+    var fechaStr = filaA[0];
+    
+    if (!fechaStr) continue;
+    
+    // Si NO tiene OK, marcamos ese mes como "necesita actualización" y guardamos la fila
+    if (estadoH !== "OK") {
+      var inf = extraerInfoFecha(fechaStr);
+      if (inf) {
+        mesesConCambios[inf.ano + "-" + inf.nombreMes] = true;
+        filasNuevasIndices.push(i + 1); // +1 por el 1-index de getRange
+      }
+    }
+  }
+  
+  if (filasNuevasIndices.length === 0) {
+    SpreadsheetApp.getUi().alert("Todas las asistencias ya tienen 'OK'. No hay nada nuevo que actualizar.");
+    return;
+  }
+  
+  // PASO 2.2: Agrupar la data COMPLETA pero SOLO de los meses que tienen cambios
+  for (var i = 1; i < datosBruto.length; i++) {
+    var filaA = datosBruto[i];
+    var fechaStr = filaA[0];
+    var dni = filaA[1].toString().trim();
+    var nombre = filaA[2];
+    var grupo = filaA[3];
+    var cargo = filaA[4];
+    var asistencia = filaA[6];
+    
+    if (!fechaStr || !dni || !grupo) continue;
+    
+    var inf = extraerInfoFecha(fechaStr);
+    if (!inf) continue;
+    
+    var llaveMes = inf.ano + "-" + inf.nombreMes;
+    
+    // Si este mes NO tiene cambios, lo ignoramos por completo para ahorrar 90% de procesamiento
+    if (!mesesConCambios[llaveMes]) continue;
+    
+    if (!asistenciasAgrupadas[inf.ano]) asistenciasAgrupadas[inf.ano] = {};
+    if (!asistenciasAgrupadas[inf.ano][inf.nombreMes]) asistenciasAgrupadas[inf.ano][inf.nombreMes] = [];
+    
+    asistenciasAgrupadas[inf.ano][inf.nombreMes].push({
+      fecha: inf.fechaObj,
+      dia: inf.diaNum,
+      diaLabel: inf.diaNum.toString().padLeft(2, '0') + '/' + inf.mesNum,
+      dni: dni,
+      nombre: nombre,
+      grupo: grupo,
+      cargo: cargo,
+      asistencia: asistencia
+    });
+  }
+  
+  // 3. Generar/Actualizar Archivos por Año y Pestañas por Mes
+  for (var ano in asistenciasAgrupadas) {
+    var nombreArchivo = "REGISTRO_ASISTENCIA_" + ano;
+    var docAnual = obtenerOCrearArchivo(nombreArchivo, spreadsheet.getId());
+    
+    for (var mes in asistenciasAgrupadas[ano]) {
+      dibujarMes(docAnual, mes, asistenciasAgrupadas[ano][mes], padronOficial, capatacesPorGrupo);
+    }
+  }
+  
+  // 4. Sellar todo con "OK" usando procesamiento por lotes masivo súper rápido (getRangeList)
+  var celdasA1Ok = [];
+  for (var k = 0; k < filasNuevasIndices.length; k++) {
+    celdasA1Ok.push("H" + filasNuevasIndices[k]);
+  }
+  if (celdasA1Ok.length > 0) {
+    hojaBruto.getRangeList(celdasA1Ok).setValue("OK");
+  }
+  
+  SpreadsheetApp.getUi().alert("✅ ¡Reportes actualizados!\n\nSe redibujaron velozmente solo los meses con cambios. Las asistencias nuevas fueron selladas con 'OK' en la Columna H.");
+}
+
+function extraerInfoFecha(fechaStr) {
+  var fecha, ano, mesNum, mesTexto, diaNum;
+  if (Object.prototype.toString.call(fechaStr) === '[object Date]') {
+    fecha = fechaStr;
+    ano = fecha.getFullYear().toString();
+    mesNum = (fecha.getMonth() + 1).toString().padLeft(2, '0');
+    mesTexto = obtenerNombreMes(fecha.getMonth());
+    diaNum = fecha.getDate();
+    return { ano: ano, mesNum: mesNum, nombreMes: mesTexto, diaNum: diaNum, fechaObj: fecha };
+  } else {
+    var partes = fechaStr.toString().split("-");
+    if (partes.length >= 3) {
+      ano = partes[0];
+      mesNum = partes[1].toString().padLeft(2, '0'); // CORRECCIÓN BUG padLeft
+      var monthIndex = parseInt(mesNum, 10) - 1;
+      mesTexto = obtenerNombreMes(monthIndex);
+      diaNum = parseInt(partes[2], 10);
+      fecha = new Date(parseInt(ano), monthIndex, diaNum);
+      return { ano: ano, mesNum: mesNum, nombreMes: mesTexto, diaNum: diaNum, fechaObj: fecha };
+    } else {
+      fecha = new Date(fechaStr);
+      if (isNaN(fecha.getTime())) return null;
+      ano = fecha.getFullYear().toString();
+      mesNum = (fecha.getMonth() + 1).toString().padLeft(2, '0');
+      mesTexto = obtenerNombreMes(fecha.getMonth());
+      diaNum = fecha.getDate();
+      return { ano: ano, mesNum: mesNum, nombreMes: mesTexto, diaNum: diaNum, fechaObj: fecha };
+    }
+  }
+}
+
+function obtenerOCrearArchivo(nombreArchivo, spreadsheetId) {
+  var carpetaParent = DriveApp.getFileById(spreadsheetId).getParents();
+  var carpeta = carpetaParent.hasNext() ? carpetaParent.next() : DriveApp.getRootFolder();
+  var archivos = carpeta.getFilesByName(nombreArchivo);
+  
+  if (archivos.hasNext()) {
+    return SpreadsheetApp.open(archivos.next());
+  } else {
+    var docNuevo = SpreadsheetApp.create(nombreArchivo);
+    var temporalFile = DriveApp.getFileById(docNuevo.getId());
+    temporalFile.moveTo(carpeta); // CORRECCIÓN BUG Drive API
+    // Eliminar la hoja "Hoja 1" que viene por defecto
+    var defaultSheet = docNuevo.getSheets()[0];
+    defaultSheet.setName("TMP_BORRAR");
+    return docNuevo;
+  }
+}
+
+function dibujarMes(doc, nombreMes, registros, padronOficial, capatacesPorGrupo) {
+  var hoja = doc.getSheetByName(nombreMes);
+  if (!hoja) {
+    hoja = doc.insertSheet(nombreMes);
+  }
+  hoja.clear(); // Limpiar contenido previo
+  
+  var dias = [];
+  var diasLabels = {};
+  var trabajadoresRegistrados = {}; 
+  
+  registros.forEach(function(r) {
+    if (dias.indexOf(r.dia) === -1) {
+      dias.push(r.dia);
+      diasLabels[r.dia] = r.diaLabel;
+    }
+    
+    if (!trabajadoresRegistrados[r.grupo]) trabajadoresRegistrados[r.grupo] = {};
+    if (!trabajadoresRegistrados[r.grupo][r.dni]) {
+      trabajadoresRegistrados[r.grupo][r.dni] = {
+        nombre: r.nombre,
+        cargo: r.cargo,
+        asistencias: {}
+      };
+    }
+    trabajadoresRegistrados[r.grupo][r.dni].asistencias[r.dia] = r.asistencia;
+  });
+  
+  dias.sort(function(a, b) { return a - b; });
+  
+  var gruposAProcesar = Object.keys(trabajadoresRegistrados).sort();
+  var filaActual = 1;
+  var inicioGrupoFilas = [];
+  var a1RojosGlobal = []; // Para almacenar las celdas rojas de TODO el mes
+  
+  for (var i = 0; i < gruposAProcesar.length; i++) {
+    var grupo = gruposAProcesar[i];
+    var capataz = capatacesPorGrupo[grupo] || "";
+    
+    hoja.getRange(filaActual, 1, 1, 2).setValues([["GRUPO", "CAPATAZ"]]);
+    hoja.getRange(filaActual + 1, 1, 1, 2).setValues([[grupo, capataz]]);
+    hoja.getRange(filaActual, 1, 1, 2).setBackground("#0A2351").setFontColor("#FFFFFF").setFontWeight("bold");
+    filaActual += 2;
+    
+    var cabecera = ["N°", "GRUPO", "NOMBRE", "DNI", "CARGO"];
+    dias.forEach(function(d) { cabecera.push(diasLabels[d]); });
+    
+    hoja.getRange(filaActual, 1, 1, cabecera.length).setValues([cabecera]);
+    hoja.getRange(filaActual, 1, 1, 5).setBackground("#0A2351").setFontColor("#FFFFFF").setFontWeight("bold");
+    if (dias.length > 0) {
+      hoja.getRange(filaActual, 6, 1, dias.length).setBackground("#2E7D32").setFontColor("#FFFFFF").setFontWeight("bold").setHorizontalAlignment("center");
+    }
+    filaActual++;
+    
+    var dataFilaInicio = filaActual;
+    var contador = 1;
+    
+    var listaOficiales = [];
+    var listaExtras = [];
+    var listaCesados = [];
+    var padronDelGrupo = padronOficial[grupo] || [];
+    var asistenciasDelGrupo = trabajadoresRegistrados[grupo];
+    
+    padronDelGrupo.forEach(function(padron) {
+      var asistencias = asistenciasDelGrupo[padron.dni] ? asistenciasDelGrupo[padron.dni].asistencias : {};
+      var tieneAsistencias = Object.keys(asistencias).length > 0;
+      
+      if (padron.estado === "CESADO" || padron.estado === "BAJA") {
+        if (tieneAsistencias) { // Solo imprimimos cesados si tienen asistencia
+          listaCesados.push({
+            dni: padron.dni,
+            nombre: padron.nombre,
+            cargo: padron.cargo,
+            asistencias: asistencias
+          });
+        }
+      } else {
+        // Oficial Activo (siempre se imprime)
+        listaOficiales.push({
+          dni: padron.dni,
+          nombre: padron.nombre,
+          cargo: padron.cargo,
+          asistencias: asistencias
+        });
+      }
+      delete asistenciasDelGrupo[padron.dni]; 
+    });
+    
+    var dnisExtras = Object.keys(asistenciasDelGrupo);
+    dnisExtras.forEach(function(dniExt) {
+      listaExtras.push({
+        dni: dniExt,
+        nombre: asistenciasDelGrupo[dniExt].nombre,
+        cargo: asistenciasDelGrupo[dniExt].cargo,
+        asistencias: asistenciasDelGrupo[dniExt].asistencias
+      });
+    });
+    
+    // CORRECCIÓN BUG localeCompare undefined y ordenamiento extra/cesado
+    listaExtras.sort(function(a, b) { return (a.nombre || "").localeCompare(b.nombre || ""); });
+    listaCesados.sort(function(a, b) { return (a.nombre || "").localeCompare(b.nombre || ""); });
+    
+    // Escribir Oficiales
+    listaOficiales.forEach(function(trab) {
+      var filaDato = [contador++, grupo, trab.nombre, trab.dni, trab.cargo];
+      dias.forEach(function(d) { filaDato.push(trab.asistencias[d] || ""); });
+      hoja.getRange(filaActual, 1, 1, filaDato.length).setValues([filaDato]);
+      analizarFaltas(filaActual, filaDato, a1RojosGlobal); // Guardamos coordenadas para el final
+      filaActual++;
+    });
+    
+    // Escribir Extras
+    if (listaExtras.length > 0) {
+      filaActual++; // Dejar una fila vacía
+      var filaInicioExtras = filaActual;
+      
+      listaExtras.forEach(function(trab) {
+        var filaDato = [contador++, grupo, trab.nombre, trab.dni, trab.cargo];
+        dias.forEach(function(d) { filaDato.push(trab.asistencias[d] || ""); });
+        hoja.getRange(filaActual, 1, 1, filaDato.length).setValues([filaDato]);
+        analizarFaltas(filaActual, filaDato, a1RojosGlobal); // Guardamos coordenadas para el final
+        filaActual++;
+      });
+      
+      // Fondo rojo suave para extras
+      hoja.getRange(filaInicioExtras, 1, listaExtras.length, cabecera.length).setBackground("#FFEBEE");
+    }
+    
+    // Escribir Cesados / Ex-Oficiales
+    if (listaCesados.length > 0) {
+      filaActual++; // Dejar una fila vacía
+      var filaInicioCesados = filaActual;
+      
+      listaCesados.forEach(function(trab) {
+        var filaDato = [contador++, grupo, trab.nombre, trab.dni, trab.cargo];
+        dias.forEach(function(d) { filaDato.push(trab.asistencias[d] || ""); });
+        hoja.getRange(filaActual, 1, 1, filaDato.length).setValues([filaDato]);
+        analizarFaltas(filaActual, filaDato, a1RojosGlobal);
+        filaActual++;
+      });
+      
+      // Fondo gris para cesados
+      hoja.getRange(filaInicioCesados, 1, listaCesados.length, cabecera.length).setBackground("#E0E0E0");
+    }
+    
+    inicioGrupoFilas.push({ inicio: dataFilaInicio, fin: filaActual - 1 });
+    filaActual += 2; 
+  }
+  
+  // PINTADO MASIVO SUPER RÁPIDO DE FALTAS CONTINUAS (Sobreescribe el #FFEBEE donde sea necesario)
+  if (a1RojosGlobal.length > 0) {
+    var rangeList = hoja.getRangeList(a1RojosGlobal);
+    rangeList.setBackground("#FF0000").setFontColor("#FFFFFF").setFontWeight("bold");
+  }
+  
+  var tmpBorrar = doc.getSheetByName("TMP_BORRAR");
+  if (tmpBorrar) doc.deleteSheet(tmpBorrar);
+  
+  hoja.autoResizeColumn(1);
+  hoja.autoResizeColumn(2);
+  hoja.autoResizeColumn(3);
+  hoja.autoResizeColumn(4);
+  hoja.autoResizeColumn(5);
+  for(var c = 6; c <= 5 + dias.length; c++) {
+    hoja.setColumnWidth(c, 30); 
+  }
+}
+
+// Función de análisis silencioso que guarda las coordenadas A1 en el array global
+function analizarFaltas(filaFisica, filaDato, a1RojosGlobal) {
+  var rachaF = 0;
+  var inicioRacha = -1;
+  
+  for (var col = 5; col < filaDato.length; col++) {
+    var valor = filaDato[col] ? filaDato[col].toString().trim().toUpperCase() : "";
+    if (valor === "F") {
+      if (rachaF === 0) inicioRacha = col + 1;
+      rachaF++;
+    } else {
+      if (rachaF >= 3) {
+        a1RojosGlobal.push(obtenerNotacionA1(filaFisica, inicioRacha, rachaF));
+      }
+      rachaF = 0;
+    }
+  }
+  if (rachaF >= 3) {
+    a1RojosGlobal.push(obtenerNotacionA1(filaFisica, inicioRacha, rachaF));
+  }
+}
+
+// Convierte (fila, col, cantidad) en notación A1 (ej. "F4:H4") para usar getRangeList
+function obtenerNotacionA1(fila, colInicio, cantidad) {
+  var letraInicio = colName(colInicio);
+  var letraFin = colName(colInicio + cantidad - 1);
+  return letraInicio + fila + ":" + letraFin + fila;
+}
+
+// Helper para convertir numero de columna a Letra
+function colName(n) {
+  var ordA = 'a'.charCodeAt(0);
+  var ordZ = 'z'.charCodeAt(0);
+  var len = ordZ - ordA + 1;
+  var s = "";
+  while(n >= 1) {
+    s = String.fromCharCode(n % len == 0 ? ordZ : ordA + (n - 1) % len) + s;
+    n = Math.floor((n - 1) / len);
+  }
+  return s.toUpperCase();
+}
+
+String.prototype.padLeft = function(length, character) {
+  return this.length < length ? (character + this).padLeft(length, character) : this;
+};
+
+function obtenerNombreMes(numeroMes) {
+  var meses = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+  return meses[numeroMes];
+}

@@ -1,0 +1,427 @@
+/**
+ * ============================================================
+ * MACRO VIRTUAL - DATA MAESTRA FOTOS
+ * Hoja destino: REPORTE_FOTOS (activa al correr la macro)
+ *
+ * FUN_1_NOMBRES_IMAGEN  → Rellena col K (nombre real del archivo)
+ *                         y col L (foto virtual) a partir del
+ *                         Drive ID en col J.
+ *
+ * FUN_2_METRADO         → Analiza cols M-U de REPORTE_FOTOS y
+ *                         genera/actualiza la hoja "METRADOS"
+ *                         agrupando actividades por su clave
+ *                         (M+N+O+P+Q+R+T+U). La col V se marca
+ *                         con "OK" para procesamiento incremental.
+ *
+ *                         Columnas en METRADOS (A-U, 21 total):
+ *                         A=FECHA, B=ACTIVIDAD, C=PARTIDA,
+ *                         D=KM INICIAL, E=KM FINAL, F=LADO,
+ *                         G=METRADO, H=UNIDAD, I=TRAMO,
+ *                         J=FOTO_ANTES (IMAGE formula),
+ *                         K=FOTO_DURANTE, L=FOTO_DESPUES,
+ *                         M=#ANTES, N=#DURANTE, O=#DESPUES,
+ *                         P=NOMBRE_FOTO_ANTES (texto para ordenar),
+ *                         Q=NOMBRE_FOTO_DURANTE,
+ *                         R=NOMBRE_FOTO_DESPUES,
+ *                         S=DRIVE_ID_ANTES (para miniaturas en web),
+ *                         T=DRIVE_ID_DURANTE,
+ *                         U=DRIVE_ID_DESPUES
+ * ============================================================
+ */
+
+
+// ============================================================
+//  FUN_1_NOMBRES_IMAGEN
+//  Genera nombres en col K y fórmulas de imagen en col L
+//  a partir del Drive File ID en col J.
+//  Se detiene al encontrar la primera celda vacía en col J.
+// ============================================================
+function FUN_1_NOMBRES_IMAGEN() {
+  var hoja = SpreadsheetApp.getActiveSheet();
+  var ultimaFila = hoja.getLastRow();
+
+  if (ultimaFila < 2) {
+    SpreadsheetApp.getUi().alert("No hay datos para procesar.");
+    return;
+  }
+
+  // --- Cabeceras de seguridad ---
+  var cabeceraK = hoja.getRange(1, 11).getValue();
+  if (!cabeceraK || cabeceraK.toString().trim() === "") {
+    hoja.getRange(1, 11).setValue("NOMBRE_FOTO")
+        .setBackground("#0A2351").setFontColor("#FFFFFF").setFontWeight("bold");
+  }
+  var cabeceraL = hoja.getRange(1, 12).getValue();
+  if (!cabeceraL || cabeceraL.toString().trim() === "") {
+    hoja.getRange(1, 12).setValue("FOTO")
+        .setBackground("#0A2351").setFontColor("#FFFFFF").setFontWeight("bold");
+  }
+
+  // --- Formato estético ---
+  hoja.setColumnWidth(10, 400);   // Col J: Drive ID
+  hoja.setColumnWidth(12, 273);   // Col L: Foto virtual
+  hoja.setRowHeights(2, ultimaFila - 1, 200);
+  hoja.getRange(2, 1, ultimaFila - 1, 11).setVerticalAlignment("middle");
+  hoja.getRange(2, 12, ultimaFila - 1, 1)
+      .setVerticalAlignment("middle").setHorizontalAlignment("center");
+
+  // --- Lectura en bloque ---
+  var matrizJ           = hoja.getRange(2, 10, ultimaFila - 1, 1).getValues();
+  var matrizK           = hoja.getRange(2, 11, ultimaFila - 1, 1).getValues();
+  var matrizL_Formulas  = hoja.getRange(2, 12, ultimaFila - 1, 1).getFormulas();
+
+  var procesadosNombres = 0;
+  var procesadasFotos   = 0;
+
+  for (var i = 0; i < matrizJ.length; i++) {
+    var idDrive  = matrizJ[i][0] ? matrizJ[i][0].toString().trim() : "";
+    var nombreK  = matrizK[i][0] ? matrizK[i][0].toString().trim() : "";
+    var formulaL = matrizL_Formulas[i][0] ? matrizL_Formulas[i][0].toString().trim() : "";
+
+    if (idDrive === "") break; // Fin de datos
+
+    if (nombreK === "") {
+      try {
+        var archivo = DriveApp.getFileById(idDrive);
+        matrizK[i][0] = archivo.getName();
+        procesadosNombres++;
+      } catch (e) {
+        matrizK[i][0] = "ERROR: Privado o Inexistente";
+      }
+    }
+
+    if (formulaL === "") {
+      var url = "https://drive.google.com/thumbnail?id=" + idDrive + "&sz=w800";
+      matrizL_Formulas[i][0] = '=IMAGE("' + url + '", 4, 180, 253)';
+      procesadasFotos++;
+    }
+  }
+
+  // --- Escritura en bloque ---
+  hoja.getRange(2, 11, ultimaFila - 1, 1).setValues(matrizK);
+  hoja.getRange(2, 12, ultimaFila - 1, 1).setFormulas(matrizL_Formulas);
+  hoja.autoResizeColumn(11);
+
+  SpreadsheetApp.getUi().alert(
+    "✅ FUN_1 COMPLETADA\n\n" +
+    "Archivos Nombrados (Col K) : " + procesadosNombres + "\n" +
+    "Fotos Generadas   (Col L) : " + procesadasFotos   + "\n\n" +
+    "El proceso se detuvo al encontrar la primera celda vacía en Col J."
+  );
+}
+
+
+// ============================================================
+//  FUN_2_METRADO
+//  Analiza REPORTE_FOTOS (cols M-U) y genera/actualiza la
+//  hoja "METRADOS" con una fila consolidada por actividad.
+//  Escribe 21 columnas (A-U) en METRADOS.
+//
+//  Lógica incremental:
+//    - Solo procesa filas SIN "OK" en col V.
+//    - Solo procesa filas con TODAS las cols M-U rellenas.
+//    - TIEMPO vacío o distinto de ANTES/DURANTE/DESPUES → ignorar.
+//    - Agrupa por clave: M+N+O+P+Q+R+T+U (S=TIEMPO es variable).
+//    - Si la actividad ya existe en METRADOS → actualiza conteos,
+//      rellena fórmulas de foto, nombres y Drive IDs que estuvieran vacíos.
+//    - Marca "OK" en col V al finalizar (escritura en bloque).
+// ============================================================
+function FUN_2_METRADO() {
+  var ss          = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaFotos   = ss.getActiveSheet();   // Debe ser REPORTE_FOTOS
+  var ultimaFila  = hojaFotos.getLastRow();
+
+  if (ultimaFila < 2) {
+    SpreadsheetApp.getUi().alert("No hay datos en REPORTE_FOTOS para procesar.");
+    return;
+  }
+
+  // ----------------------------------------------------------
+  // 1. Obtener o crear la hoja METRADOS + cabeceras (21 cols)
+  // ----------------------------------------------------------
+  var hojaMetrados = ss.getSheetByName("METRADOS");
+  if (!hojaMetrados) {
+    hojaMetrados = ss.insertSheet("METRADOS");
+  }
+  if (hojaMetrados.getLastRow() < 1) {
+    var cabeceras = [[
+      "FECHA", "ACTIVIDAD", "PARTIDA", "KM INICIAL", "KM FINAL", "LADO",
+      "METRADO", "UNIDAD", "TRAMO",
+      "FOTO_ANTES", "FOTO_DURANTE", "FOTO_DESPUES",
+      "#ANTES", "#DURANTE", "#DESPUES",
+      "NOMBRE_FOTO_ANTES", "NOMBRE_FOTO_DURANTE", "NOMBRE_FOTO_DESPUES",
+      "DRIVE_ID_ANTES", "DRIVE_ID_DURANTE", "DRIVE_ID_DESPUES"
+    ]];
+    hojaMetrados.getRange(1, 1, 1, 21)
+      .setValues(cabeceras)
+      .setBackground("#0A2351")
+      .setFontColor("#FFFFFF")
+      .setFontWeight("bold");
+  }
+
+  // ----------------------------------------------------------
+  // 2. Leer REPORTE_FOTOS en bloque (cols A-V = 22 columnas)
+  //    Índices 0-based:
+  //      [2]=FECHA  [9]=DRIVE_ID  [10]=NOMBRE_FOTO
+  //      [12]=ACTIVIDAD  [13]=PARTIDA  [14]=TRAMO
+  //      [15]=INICIO   [16]=FIN    [17]=LADO
+  //      [18]=TIEMPO   [19]=METRADO  [20]=UNIDAD  [21]=COL V (OK)
+  // ----------------------------------------------------------
+  var numFilas    = ultimaFila - 1;
+  var matrizFotos = hojaFotos.getRange(2, 1, numFilas, 22).getValues();
+
+  // ----------------------------------------------------------
+  // 3. Leer filas existentes de METRADOS (21 cols) para reconciliación
+  //    Índices 0-based en METRADOS:
+  //      [0]=FECHA [1]=ACTIVIDAD [2]=PARTIDA [3]=KMINI [4]=KMFIN
+  //      [5]=LADO  [6]=METRADO   [7]=UNIDAD  [8]=TRAMO
+  //      [9]=FOTO_ANTES [10]=FOTO_DURANTE [11]=FOTO_DESPUES
+  //      [12]=#ANTES [13]=#DURANTE [14]=#DESPUES
+  //      [15]=NOMBRE_FOTO_ANTES [16]=NOMBRE_FOTO_DURANTE [17]=NOMBRE_FOTO_DESPUES
+  //      [18]=DRIVE_ID_ANTES [19]=DRIVE_ID_DURANTE [20]=DRIVE_ID_DESPUES
+  // ----------------------------------------------------------
+  var mapaMetrados  = {};
+  var ultimaFilaMet = hojaMetrados.getLastRow();
+  var valsMetrados  = [];
+  var fmlsMetrados  = [];  // Fórmulas de cols J-L para saber cuáles están vacías
+
+  if (ultimaFilaMet >= 2) {
+    var numFilasMet = ultimaFilaMet - 1;
+    valsMetrados    = hojaMetrados.getRange(2, 1, numFilasMet, 21).getValues();
+    fmlsMetrados    = hojaMetrados.getRange(2, 10, numFilasMet, 3).getFormulas(); // J,K,L
+
+    for (var m = 0; m < valsMetrados.length; m++) {
+      var claveMet = _claveMetrados(valsMetrados[m]);
+      if (claveMet !== "") {
+        mapaMetrados[claveMet] = { filaHoja: m + 2, arrIdx: m };
+      }
+    }
+  }
+
+  // ----------------------------------------------------------
+  // 4. Recorrer filas nuevas de REPORTE_FOTOS y agrupar
+  // ----------------------------------------------------------
+  var grupos            = {};
+  var filasParaMarcarOK = [];
+
+  for (var i = 0; i < matrizFotos.length; i++) {
+    var fila      = matrizFotos[i];
+    var procesado = fila[21] ? fila[21].toString().trim().toUpperCase() : "";
+
+    if (procesado === "OK") continue;
+
+    // Validar que TODAS las cols M-U (índices 12-20) estén rellenas
+    var valida = true;
+    for (var c = 12; c <= 20; c++) {
+      if (fila[c] === null || fila[c] === undefined || fila[c].toString().trim() === "") {
+        valida = false;
+        break;
+      }
+    }
+    if (!valida) continue;
+
+    // Validar TIEMPO (col S = índice 18)
+    var tiempo = _norm(fila[18]);
+    if (tiempo !== "ANTES" && tiempo !== "DURANTE" && tiempo !== "DESPUES") continue;
+
+    filasParaMarcarOK.push(i);
+
+    var clave = _claveFotos(fila);
+    if (!grupos[clave]) {
+      grupos[clave] = {
+        fecha:     fila[2],
+        actividad: fila[12],
+        partida:   fila[13],
+        tramo:     fila[14],
+        inicio:    fila[15],
+        fin:       fila[16],
+        lado:      fila[17],
+        metrado:   fila[19],
+        unidad:    fila[20],
+        tiempos: { ANTES: [], DURANTE: [], DESPUES: [] }
+      };
+    }
+    // Guardar driveId Y nombreFoto para cada tiempo
+    grupos[clave].tiempos[tiempo].push({
+      driveId:    (fila[9]  || "").toString().trim(),
+      nombreFoto: (fila[10] || "").toString().trim()
+    });
+  }
+
+  // ----------------------------------------------------------
+  // 5. Reconciliar grupos con METRADOS y preparar escritura
+  // ----------------------------------------------------------
+  var filasNuevasVals  = [];
+  var filasNuevasFmls  = [];  // Solo J,K,L (3 cols)
+  var claves           = Object.keys(grupos);
+  var nuevasAgregadas  = 0;
+  var actualizadas     = 0;
+
+  for (var g = 0; g < claves.length; g++) {
+    var clave  = claves[g];
+    var grupo  = grupos[clave];
+    var tAntes   = grupo.tiempos.ANTES;
+    var tDurante = grupo.tiempos.DURANTE;
+    var tDespues = grupo.tiempos.DESPUES;
+
+    // Tomar el primer elemento de cada tiempo
+    var itemAntes   = tAntes.length   > 0 ? tAntes[0]   : null;
+    var itemDurante = tDurante.length > 0 ? tDurante[0] : null;
+    var itemDespues = tDespues.length > 0 ? tDespues[0] : null;
+
+    var driveAntes   = itemAntes   ? itemAntes.driveId     : "";
+    var driveDurante = itemDurante ? itemDurante.driveId   : "";
+    var driveDespues = itemDespues ? itemDespues.driveId   : "";
+    var nombreAntes   = itemAntes   ? itemAntes.nombreFoto  : "";
+    var nombreDurante = itemDurante ? itemDurante.nombreFoto: "";
+    var nombreDespues = itemDespues ? itemDespues.nombreFoto: "";
+
+    var fmlA = driveAntes   !== "" ? _fmlFoto(driveAntes)   : "";
+    var fmlD = driveDurante !== "" ? _fmlFoto(driveDurante) : "";
+    var fmlE = driveDespues !== "" ? _fmlFoto(driveDespues) : "";
+
+    if (mapaMetrados.hasOwnProperty(clave)) {
+      // ── Actividad YA existe → actualizar ──
+      var entrada = mapaMetrados[clave];
+      var idx     = entrada.arrIdx;
+
+      // Sumar conteos
+      valsMetrados[idx][12] = (Number(valsMetrados[idx][12]) || 0) + tAntes.length;
+      valsMetrados[idx][13] = (Number(valsMetrados[idx][13]) || 0) + tDurante.length;
+      valsMetrados[idx][14] = (Number(valsMetrados[idx][14]) || 0) + tDespues.length;
+
+      // Rellenar nombres y Drive IDs si estaban vacíos
+      if (!valsMetrados[idx][15] && nombreAntes)   valsMetrados[idx][15] = nombreAntes;
+      if (!valsMetrados[idx][16] && nombreDurante) valsMetrados[idx][16] = nombreDurante;
+      if (!valsMetrados[idx][17] && nombreDespues) valsMetrados[idx][17] = nombreDespues;
+      if (!valsMetrados[idx][18] && driveAntes)    valsMetrados[idx][18] = driveAntes;
+      if (!valsMetrados[idx][19] && driveDurante)  valsMetrados[idx][19] = driveDurante;
+      if (!valsMetrados[idx][20] && driveDespues)  valsMetrados[idx][20] = driveDespues;
+
+      // Rellenar fórmulas de foto si la celda estaba vacía
+      var fAnteriorA = fmlsMetrados[idx] ? (fmlsMetrados[idx][0] || "") : "";
+      var fAnteriorD = fmlsMetrados[idx] ? (fmlsMetrados[idx][1] || "") : "";
+      var fAnteriorE = fmlsMetrados[idx] ? (fmlsMetrados[idx][2] || "") : "";
+
+      if (fAnteriorA === "" && fmlA !== "") hojaMetrados.getRange(entrada.filaHoja, 10).setFormula(fmlA);
+      if (fAnteriorD === "" && fmlD !== "") hojaMetrados.getRange(entrada.filaHoja, 11).setFormula(fmlD);
+      if (fAnteriorE === "" && fmlE !== "") hojaMetrados.getRange(entrada.filaHoja, 12).setFormula(fmlE);
+
+      actualizadas++;
+
+    } else {
+      // ── Actividad NUEVA → preparar fila para agregar ──
+      filasNuevasVals.push([
+        grupo.fecha, grupo.actividad, grupo.partida,
+        grupo.inicio, grupo.fin, grupo.lado,
+        grupo.metrado, grupo.unidad, grupo.tramo,
+        "", "", "",                   // J,K,L: placeholders (se sobreescriben con fórmulas)
+        tAntes.length, tDurante.length, tDespues.length,  // M,N,O: conteos
+        nombreAntes, nombreDurante, nombreDespues,         // P,Q,R: nombres de foto
+        driveAntes, driveDurante, driveDespues             // S,T,U: Drive IDs
+      ]);
+      filasNuevasFmls.push([fmlA, fmlD, fmlE]);  // Solo para J,K,L
+      nuevasAgregadas++;
+    }
+  }
+
+  // ----------------------------------------------------------
+  // 6. Escribir cambios en METRADOS
+  // ----------------------------------------------------------
+
+  // 6a. Actualizar columnas de valor de filas existentes (NO tocar J-L que tienen fórmulas)
+  if (valsMetrados.length > 0) {
+    // A-I (cols 1-9)
+    var vAI = valsMetrados.map(function(r) { return r.slice(0, 9); });
+    hojaMetrados.getRange(2, 1, valsMetrados.length, 9).setValues(vAI);
+    // M-O (cols 13-15)
+    var vMO = valsMetrados.map(function(r) { return r.slice(12, 15); });
+    hojaMetrados.getRange(2, 13, valsMetrados.length, 3).setValues(vMO);
+    // P-U (cols 16-21)
+    var vPU = valsMetrados.map(function(r) { return r.slice(15, 21); });
+    hojaMetrados.getRange(2, 16, valsMetrados.length, 6).setValues(vPU);
+  }
+
+  // 6b. Agregar filas nuevas al final
+  if (filasNuevasVals.length > 0) {
+    var filaInicio = hojaMetrados.getLastRow() + 1;
+    hojaMetrados.getRange(filaInicio, 1, filasNuevasVals.length, 21).setValues(filasNuevasVals);
+    // Sobreescribir J,K,L con fórmulas de imagen
+    hojaMetrados.getRange(filaInicio, 10, filasNuevasFmls.length, 3).setFormulas(filasNuevasFmls);
+  }
+
+  // ----------------------------------------------------------
+  // 7. Marcar "OK" en col V de REPORTE_FOTOS (escritura en bloque)
+  // ----------------------------------------------------------
+  if (filasParaMarcarOK.length > 0) {
+    var matrizV = hojaFotos.getRange(2, 22, numFilas, 1).getValues();
+    for (var k = 0; k < filasParaMarcarOK.length; k++) {
+      matrizV[filasParaMarcarOK[k]][0] = "OK";
+    }
+    hojaFotos.getRange(2, 22, numFilas, 1).setValues(matrizV);
+  }
+
+  // ----------------------------------------------------------
+  // 8. Formato estético de METRADOS
+  // ----------------------------------------------------------
+  var totalMet = hojaMetrados.getLastRow();
+  if (totalMet >= 2) {
+    hojaMetrados.setColumnWidth(10, 273);   // J - FOTO_ANTES
+    hojaMetrados.setColumnWidth(11, 273);   // K - FOTO_DURANTE
+    hojaMetrados.setColumnWidth(12, 273);   // L - FOTO_DESPUES
+    hojaMetrados.setRowHeights(2, totalMet - 1, 200);
+    hojaMetrados.getRange(2, 1, totalMet - 1, 21).setVerticalAlignment("middle");
+    hojaMetrados.getRange(2, 10, totalMet - 1, 3).setHorizontalAlignment("center");
+  }
+
+  SpreadsheetApp.getUi().alert(
+    "✅ FUN_2 COMPLETADA\n\n" +
+    "Filas procesadas en REPORTE_FOTOS : " + filasParaMarcarOK.length + "\n" +
+    "Actividades nuevas  en METRADOS  : " + nuevasAgregadas + "\n" +
+    "Actividades actualizadas          : " + actualizadas + "\n\n" +
+    "Las filas procesadas fueron marcadas con 'OK' en la columna V."
+  );
+}
+
+
+// ============================================================
+//  FUNCIONES INTERNAS AUXILIARES (prefijo _ para distinguirlas)
+// ============================================================
+
+function _norm(valor) {
+  return valor.toString().trim().toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function _claveFotos(fila) {
+  return [
+    _norm(fila[12]),
+    _norm(fila[13]),
+    _norm(fila[14]),
+    fila[15].toString().trim(),
+    fila[16].toString().trim(),
+    _norm(fila[17]),
+    fila[19].toString().trim(),
+    _norm(fila[20])
+  ].join("|");
+}
+
+function _claveMetrados(fila) {
+  if (!fila[1] || fila[1].toString().trim() === "") return "";
+  return [
+    _norm(fila[1]),
+    _norm(fila[2]),
+    _norm(fila[8]),
+    fila[3].toString().trim(),
+    fila[4].toString().trim(),
+    _norm(fila[5]),
+    fila[6].toString().trim(),
+    _norm(fila[7])
+  ].join("|");
+}
+
+function _fmlFoto(driveId) {
+  if (!driveId || driveId.trim() === "") return "";
+  var url = "https://drive.google.com/thumbnail?id=" + driveId.trim() + "&sz=w800";
+  return '=IMAGE("' + url + '", 4, 180, 253)';
+}
