@@ -125,19 +125,20 @@ function procesarPadron(data) {
     data.forEach(row => {
         const grupo = row.GRUPO ? row.GRUPO.trim() : '';
         const capataz = row.CAPATAZ ? row.CAPATAZ.trim() : '';
-        const dni = row.DNI ? row.DNI.trim() : '';
+        const rawDni = row.DNI ? row.DNI.toString().trim() : '';
+        const dniKey = normDni(rawDni);
         const nombre = row.NOMBRES ? row.NOMBRES.trim() : '';
         const cargo = row.CARGO ? row.CARGO.trim() : '';
 
-        if (!grupo || !dni) return;
+        if (!grupo || !rawDni) return;
 
-        // Registrar DNI como perteneciente al Padrón Oficial
-        asistPadronDnis.add(dni);
+        // Registrar DNI normalizado como perteneciente al Padrón Oficial Global
+        asistPadronDnis.add(dniKey);
 
         if (!asistPadron[grupo]) {
             asistPadron[grupo] = { capataz: capataz, trabajadores: [] };
         }
-        asistPadron[grupo].trabajadores.push({ dni, nombre, cargo });
+        asistPadron[grupo].trabajadores.push({ dni: rawDni, dniKey: dniKey, nombre, cargo });
     });
 }
 
@@ -150,16 +151,16 @@ function procesarAsistencia(data) {
 
     data.forEach(row => {
         const fechaStr = row.FECHA ? row.FECHA.trim() : '';
-        const dni = row.DNI ? row.DNI.trim() : '';
+        const rawDni = row.DNI ? row.DNI.toString().trim() : '';
+        const dniKey = normDni(rawDni);
         const asistencia = row.ASISTENCIA ? row.ASISTENCIA.trim() : '';
         const grupo = row.GRUPO ? row.GRUPO.trim() : '';
         const nombre = row.NOMBRE ? row.NOMBRE.trim() : '';
         const cargo = row.CARGO ? row.CARGO.trim() : '';
 
-        if (!fechaStr || !dni) return;
+        if (!fechaStr || !rawDni) return;
 
         // Extraer Año-Mes y Día (asumiendo formato YYYY-MM-DD del CSV nativo de Sheets)
-        // O podría venir como DD/MM/YYYY. Intentamos extraer.
         let mesLlave = "";
         let diaLlave = "";
         
@@ -191,10 +192,10 @@ function procesarAsistencia(data) {
         
         fechasSet[mesLlave].add(diaLlave);
 
-        if (!asistBruto[mesLlave][dni]) {
-            asistBruto[mesLlave][dni] = { grupo, nombre, cargo, marcas: {} };
+        if (!asistBruto[mesLlave][dniKey]) {
+            asistBruto[mesLlave][dniKey] = { grupo, nombre, cargo, rawDni, marcas: {} };
         }
-        asistBruto[mesLlave][dni].marcas[diaLlave] = asistencia;
+        asistBruto[mesLlave][dniKey].marcas[diaLlave] = asistencia;
     });
 
     // Ordenar los meses
@@ -289,9 +290,9 @@ function llenarCombosAsistencia() {
 
     // Incluir grupos/cargos del personal extra (DNI no está en el Padrón Oficial)
     Object.values(asistBruto).forEach(mes => {
-        Object.keys(mes).forEach(dni => {
-            if (!asistPadronDnis.has(dni)) {
-                const t = mes[dni];
+        Object.keys(mes).forEach(dniKey => {
+            if (!asistPadronDnis.has(dniKey)) {
+                const t = mes[dniKey];
                 if (t.grupo) grupos.add(t.grupo);
                 if (t.cargo) cargos.add(t.cargo);
             }
@@ -375,9 +376,10 @@ function renderizarAsistencia() {
     // Para OFICIAL: Los grupos del Padrón Oficial.
     // Para EXTRA: Los grupos de personal sin Padrón según ASISTENCIA_BRUTO.
     const gruposExtras = new Set();
-    Object.values(dataDelMes).forEach(t => {
-        if (t.grupo) {
-            gruposExtras.add(t.grupo);
+    Object.keys(dataDelMes).forEach(dniKey => {
+        if (!asistPadronDnis.has(dniKey)) {
+            const t = dataDelMes[dniKey];
+            if (t.grupo) gruposExtras.add(t.grupo);
         }
     });
 
@@ -401,7 +403,8 @@ function renderizarAsistencia() {
             // Sacar del Padrón Oficial: Consolida TODA la asistencia del DNI bajo su grupo actual del Padrón
             if (asistPadron[grupo]) {
                 asistPadron[grupo].trabajadores.forEach(padron => {
-                    const asistDni = dataDelMes[padron.dni] ? dataDelMes[padron.dni].marcas : {};
+                    const asistObj = dataDelMes[padron.dniKey];
+                    const asistDni = asistObj ? asistObj.marcas : {};
                     trabajadoresRenderizar.push({
                         dni: padron.dni,
                         nombre: padron.nombre,
@@ -412,14 +415,14 @@ function renderizarAsistencia() {
             }
         } else {
             // Sacar Extras: ÚNICAMENTE trabajadores cuyo DNI NO existe en NINGÚN grupo del Padrón Oficial
-            Object.keys(dataDelMes).forEach(dni => {
+            Object.keys(dataDelMes).forEach(dniKey => {
                 // Si el DNI está en el Padrón Oficial (en cualquier grupo), NUNCA es un trabajador extra
-                if (asistPadronDnis.has(dni)) return;
+                if (asistPadronDnis.has(dniKey)) return;
 
-                const tInfo = dataDelMes[dni];
+                const tInfo = dataDelMes[dniKey];
                 if (tInfo.grupo === grupo) {
                     trabajadoresRenderizar.push({
-                        dni: dni,
+                        dni: tInfo.rawDni || dniKey,
                         nombre: tInfo.nombre,
                         cargo: tInfo.cargo,
                         marcas: tInfo.marcas
