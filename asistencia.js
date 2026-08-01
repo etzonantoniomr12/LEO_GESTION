@@ -4,7 +4,9 @@ const URL_ASISTENCIA = 'https://docs.google.com/spreadsheets/d/1zzBPvdO-CortXfI1
 let asistDatosCargados = false;
 
 // Estado global de asistencia
+// Estado global de asistencia
 let asistPadron = {}; // { GRUPO: { capataz: "", trabajadores: [ {dni, nombre, cargo} ] } }
+let asistPadronDnis = new Set(); // Set global con TODOS los DNIs que pertenecen al Padrón Oficial
 let asistBruto = {}; // Agrupado por MES (ej. "2026-07") -> luego DNI -> FECHA
 let asistMeses = []; // ["2026-07", ...]
 let asistDiasPorMes = {}; // { "2026-07": ["01", "02", ...] }
@@ -118,6 +120,8 @@ async function cargarDatosAsistencia() {
 
 function procesarPadron(data) {
     asistPadron = {};
+    asistPadronDnis = new Set();
+
     data.forEach(row => {
         const grupo = row.GRUPO ? row.GRUPO.trim() : '';
         const capataz = row.CAPATAZ ? row.CAPATAZ.trim() : '';
@@ -126,6 +130,9 @@ function procesarPadron(data) {
         const cargo = row.CARGO ? row.CARGO.trim() : '';
 
         if (!grupo || !dni) return;
+
+        // Registrar DNI como perteneciente al Padrón Oficial
+        asistPadronDnis.add(dni);
 
         if (!asistPadron[grupo]) {
             asistPadron[grupo] = { capataz: capataz, trabajadores: [] };
@@ -280,11 +287,14 @@ function llenarCombosAsistencia() {
         asistPadron[g].trabajadores.forEach(t => { if (t.cargo) cargos.add(t.cargo); });
     });
 
-    // Incluir grupos/cargos del personal extra (no están en padrón)
+    // Incluir grupos/cargos del personal extra (DNI no está en el Padrón Oficial)
     Object.values(asistBruto).forEach(mes => {
-        Object.values(mes).forEach(t => {
-            if (t.grupo) grupos.add(t.grupo);
-            if (t.cargo) cargos.add(t.cargo);
+        Object.keys(mes).forEach(dni => {
+            if (!asistPadronDnis.has(dni)) {
+                const t = mes[dni];
+                if (t.grupo) grupos.add(t.grupo);
+                if (t.cargo) cargos.add(t.cargo);
+            }
         });
     });
 
@@ -361,10 +371,19 @@ function renderizarAsistencia() {
     let htmlContent = '';
     let itemContador = 1;
 
-    // Obtener los grupos ordenados
+    // Obtener los grupos a considerar:
+    // Para OFICIAL: Los grupos del Padrón Oficial.
+    // Para EXTRA: Los grupos de personal sin Padrón según ASISTENCIA_BRUTO.
+    const gruposExtras = new Set();
+    Object.values(dataDelMes).forEach(t => {
+        if (t.grupo) {
+            gruposExtras.add(t.grupo);
+        }
+    });
+
     const gruposOrdenados = Array.from(new Set([
         ...Object.keys(asistPadron),
-        ...Object.values(dataDelMes).map(t => t.grupo)
+        ...gruposExtras
     ])).sort();
 
     // Palabras del filtro de búsqueda
@@ -379,7 +398,7 @@ function renderizarAsistencia() {
         let trabajadoresRenderizar = [];
 
         if (asistFiltros.tipo === 'OFICIAL') {
-            // Sacar del Padrón Oficial
+            // Sacar del Padrón Oficial: Consolida TODA la asistencia del DNI bajo su grupo actual del Padrón
             if (asistPadron[grupo]) {
                 asistPadron[grupo].trabajadores.forEach(padron => {
                     const asistDni = dataDelMes[padron.dni] ? dataDelMes[padron.dni].marcas : {};
@@ -392,12 +411,13 @@ function renderizarAsistencia() {
                 });
             }
         } else {
-            // Sacar Extras (Tienen asistencia pero no están en Padrón)
-            const dnisPadron = asistPadron[grupo] ? new Set(asistPadron[grupo].trabajadores.map(t => t.dni)) : new Set();
-            
+            // Sacar Extras: ÚNICAMENTE trabajadores cuyo DNI NO existe en NINGÚN grupo del Padrón Oficial
             Object.keys(dataDelMes).forEach(dni => {
+                // Si el DNI está en el Padrón Oficial (en cualquier grupo), NUNCA es un trabajador extra
+                if (asistPadronDnis.has(dni)) return;
+
                 const tInfo = dataDelMes[dni];
-                if (tInfo.grupo === grupo && !dnisPadron.has(dni)) {
+                if (tInfo.grupo === grupo) {
                     trabajadoresRenderizar.push({
                         dni: dni,
                         nombre: tInfo.nombre,
