@@ -1,9 +1,14 @@
 const URL_PADRON = 'https://docs.google.com/spreadsheets/d/1zzBPvdO-CortXfI1aY77PLZeb860cGCo7IUwQNZq8YM/export?format=csv&gid=0';
 const URL_ASISTENCIA = 'https://docs.google.com/spreadsheets/d/1zzBPvdO-CortXfI1aY77PLZeb860cGCo7IUwQNZq8YM/export?format=csv&gid=736418888';
 
+function normDni(val) {
+    if (!val) return '';
+    const str = val.toString().trim();
+    return str.replace(/^0+(?=\d)/, '');
+}
+
 let asistDatosCargados = false;
 
-// Estado global de asistencia
 // Estado global de asistencia
 let asistPadron = {}; // { GRUPO: { capataz: "", trabajadores: [ {dni, nombre, cargo} ] } }
 let asistPadronDnis = new Set(); // Set global con TODOS los DNIs que pertenecen al Padrón Oficial
