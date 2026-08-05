@@ -30,6 +30,7 @@ function cambiarVista(vista, esManual = true) {
     const btnRegistro    = document.getElementById('btn-nav-registro');
     const btnAsistencia  = document.getElementById('btn-nav-asistencia');
     const btnMetrados    = document.getElementById('btn-nav-metrados');
+    const btnExportWord  = document.getElementById('btn-export-word');
     
     // Guardar en session
     sessionStorage.setItem('vistaActual', vista);
@@ -61,6 +62,7 @@ function cambiarVista(vista, esManual = true) {
         btnRegistro  && (btnRegistro.classList.remove(...clsInactive), btnRegistro.classList.add(...clsActive));
         headerMain       && headerMain.classList.remove('hidden');
         headerAsistencia && headerAsistencia.classList.add('hidden');
+        btnExportWord    && btnExportWord.classList.add('hidden');
         cargarDatos();
         
     } else if (vista === 'asistencia') {
@@ -75,6 +77,7 @@ function cambiarVista(vista, esManual = true) {
         btnMetrados  && (btnMetrados.classList.remove(...clsInactive), btnMetrados.classList.add(...clsActive));
         headerMain       && headerMain.classList.remove('hidden');
         headerAsistencia && headerAsistencia.classList.add('hidden');
+        btnExportWord    && btnExportWord.classList.remove('hidden');
         if (typeof inicializarMetrados === 'function') inicializarMetrados();
     }
     

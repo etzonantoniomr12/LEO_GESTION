@@ -667,6 +667,123 @@ async function exportarPDFMet() {
 // ==========================================
 // DESCARGAR FOTOS (ZIP vía Apps Script)
 // ==========================================
+// ==========================================
+// EXPORTACIÓN WORD (LÓGICA DEL GENERADOR PYTHON)
+// ==========================================
+function _dataUrlABytesMet(dataUrl) {
+    const base64 = String(dataUrl || '').split(',')[1];
+    if (!base64) return null;
+    const binario = atob(base64);
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    return bytes;
+}
+
+async function _urlADataUrlMet(url) {
+    if (!url) return '';
+    if (/^data:image\//i.test(url)) return url;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function _obtenerImagenesWordMet(registros) {
+    const referencias = [];
+    const agregar = (d, tipo, id) => {
+        const ref = _refFotoMet(d, tipo);
+        if (ref) referencias.push({ d, tipo, ref, id: id || '' });
+    };
+    registros.forEach(d => {
+        agregar(d, 'antes', d.driveIdAntes);
+        agregar(d, 'durante', d.driveIdDurante);
+        agregar(d, 'despues', d.driveIdDespues);
+    });
+
+    const resultado = new Map();
+    const ids = [...new Set(referencias.map(x => x.id).filter(Boolean))];
+    if (ids.length && typeof GAS_THUMBS_URL !== 'undefined') {
+        try {
+            const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids }) });
+            const data = await resp.json();
+            if (data.success && data.data) Object.entries(data.data).forEach(([id, dataUrl]) => resultado.set(id, dataUrl));
+        } catch (e) {
+            console.warn('No se pudieron obtener las miniaturas para Word:', e);
+        }
+    }
+
+    for (const item of referencias) {
+        const dataUrl = item.id ? resultado.get(item.id) : item.ref;
+        if (!dataUrl) continue;
+        try {
+            const imagen = /^data:image\//i.test(dataUrl) ? dataUrl : await _urlADataUrlMet(dataUrl);
+            const bytes = _dataUrlABytesMet(imagen);
+            if (bytes) resultado.set(`${item.d.__metWordKey}|${item.tipo}`, bytes);
+        } catch (e) {
+            console.warn('Foto omitida en Word:', item.ref, e);
+        }
+    }
+    return resultado;
+}
+
+function _textoTituloWordMet(d) {
+    const actividad = d.partida || d.actividad || 'Actividad sin descripción';
+    const lado = d.lado ? ` lado ${d.lado.toLowerCase()}` : '';
+    const km = d.kmInicial || d.kmFinal ? ` km ${d.kmInicial || ''}-${d.kmFinal || ''}` : '';
+    return `${actividad}${lado}${km}`.trim();
+}
+
+async function exportarWordMet() {
+    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
+    if (typeof docx === 'undefined') {
+        alert('No se pudo cargar el generador de documentos Word. Verifica tu conexión a Internet.');
+        return;
+    }
+    const btn = document.getElementById('btn-export-word');
+    const original = btn ? btn.innerHTML : '';
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = 'Generando Word...'; }
+        filtradosMetrados.forEach((d, i) => { d.__metWordKey = String(i); });
+        const imagenes = await _obtenerImagenesWordMet(filtradosMetrados);
+        const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Table, TableCell, TableRow, WidthType, BorderStyle } = docx;
+        const children = [];
+
+        filtradosMetrados.forEach((d, i) => {
+            if (i > 0) children.push(new Paragraph({ pageBreakBefore: true }));
+            const fecha = d.fecha || '-';
+            const tramo = `ACTIVIDAD: ${d.actividad || '-'}  |  TRAMO: ${d.tramo || '-'}`;
+            children.push(new Table({
+                width: { size: 35, type: WidthType.PERCENTAGE }, alignment: AlignmentType.RIGHT,
+                rows: [new TableRow({ cells: [new TableCell({
+                    children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `FECHA: ${fecha}`, bold: true, font: 'Arial', size: 24 })] })],
+                    borders: { top: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' }, bottom: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' }, left: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' }, right: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' } }
+                })] })]
+            }));
+            children.push(new Paragraph({ spacing: { before: 140, after: 80 }, children: [new TextRun({ text: tramo, bold: true, font: 'Arial', size: 24, highlight: 'yellow' })] }));
+            children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 120 }, children: [new TextRun({ text: _textoTituloWordMet(d), bold: true, font: 'Arial', size: 28 })] }));
+            ['antes', 'durante', 'despues'].forEach(tipo => {
+                const bytes = imagenes.get(`${d.__metWordKey}|${tipo}`);
+                if (bytes) children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new ImageRun({ data: bytes, transformation: { height: 257, width: 385 } })] }));
+            });
+        });
+
+        const documento = new Document({ sections: [{ properties: { page: { margin: { top: 900, right: 900, bottom: 900, left: 900 } } }, children }] });
+        const blob = await Packer.toBlob(documento);
+        saveAs(blob, `METRADOS_${new Date().toISOString().slice(0, 10)}.docx`);
+    } catch (e) {
+        console.error(e);
+        alert('Error al generar Word: ' + e.message);
+    } finally {
+        filtradosMetrados.forEach(d => delete d.__metWordKey);
+        if (btn) { btn.innerHTML = original; btn.disabled = false; }
+    }
+}
+
 async function descargarFotosMet() {
     const btn = document.getElementById('btn-download-zip');
     const fotos = [];
@@ -699,4 +816,6 @@ async function descargarFotosMet() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     configurarEventosMet();
+    const btnWord = $m('btn-export-word');
+    if (btnWord) btnWord.addEventListener('click', exportarWordMet);
 });
