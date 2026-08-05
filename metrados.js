@@ -7,6 +7,15 @@
 const METRADOS_SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
 const METRADOS_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=METRADOS`;
 
+// Estas son las únicas columnas que se muestran en la pantalla.  Las columnas
+// DRIVE_ID_*, NOMBRE_FOTO_* y #* se conservan solo como datos auxiliares para
+// poder abrir/cargar las fotos, nunca se presentan como columnas de la tabla.
+const COLUMNAS_VISIBLES_MET = [
+    'ITEM', 'FECHA', 'ACTIVIDAD', 'PARTIDA', 'KM INICIAL', 'KM FINAL',
+    'LADO', 'METRADO', 'UNIDAD', 'TRAMO', 'FOTO_ANTES', 'FOTO_DURANTE',
+    'FOTO_DESPUES'
+];
+
 // --- Estado global del módulo ---
 let datosMetrados       = [];
 let filtradosMetrados   = [];
@@ -75,32 +84,81 @@ function cargarDatosMetrados() {
 
 function procesarDatosMetrados(raw) {
     return raw.map(fila => {
-        const kmI = fila['KM INICIAL'] !== undefined ? fila['KM INICIAL'] : '';
-        const kmF = fila['KM FINAL']   !== undefined ? fila['KM FINAL']   : '';
+        // Google Sheets puede devolver BOM, espacios o cambios de mayúsculas
+        // en los encabezados. Normalizar aquí evita leer una columna distinta.
+        const normalizada = {};
+        Object.keys(fila || {}).forEach(k => {
+            normalizada[String(k).replace(/^\uFEFF/, '').trim().toUpperCase()] = fila[k];
+        });
+        const valor = (...nombres) => {
+            for (const nombre of nombres) {
+                if (normalizada[nombre] !== undefined && normalizada[nombre] !== null) {
+                    return String(normalizada[nombre]).trim();
+                }
+            }
+            return '';
+        };
+        const kmI = valor('KM INICIAL', 'KM INI.');
+        const kmF = valor('KM FINAL', 'KM FIN.');
+        const fotoAntes = valor('FOTO_ANTES', 'FOTO ANTES');
+        const fotoDurante = valor('FOTO_DURANTE', 'FOTO DURANTE');
+        const fotoDespues = valor('FOTO_DESPUES', 'FOTO DESPUES');
+        const idAntes = valor('DRIVE_ID_ANTES');
+        const idDurante = valor('DRIVE_ID_DURANTE');
+        const idDespues = valor('DRIVE_ID_DESPUES');
         return {
-            fecha:             (fila['FECHA']             || '').trim(),
-            actividad:         (fila['ACTIVIDAD']         || '').trim(),
-            partida:           (fila['PARTIDA']           || '').trim(),
+            fecha:             valor('FECHA'),
+            actividad:         valor('ACTIVIDAD'),
+            partida:           valor('PARTIDA'),
             kmInicial:          kmI !== '' ? kmI : '',
             kmFinal:            kmF !== '' ? kmF : '',
-            lado:              (fila['LADO']              || '').trim(),
-            metrado:           (fila['METRADO']           || '').trim(),
-            unidad:            (fila['UNIDAD']            || '').trim(),
-            tramo:             (fila['TRAMO']             || '').trim(),
+            lado:              valor('LADO'),
+            metrado:           valor('METRADO'),
+            unidad:            valor('UNIDAD'),
+            tramo:             valor('TRAMO'),
             // Fotos (Drive IDs para miniaturas)
-            driveIdAntes:      (fila['DRIVE_ID_ANTES']    || '').trim(),
-            driveIdDurante:    (fila['DRIVE_ID_DURANTE']  || '').trim(),
-            driveIdDespues:    (fila['DRIVE_ID_DESPUES']  || '').trim(),
+            driveIdAntes:      idAntes || _extraerDriveIdMet(fotoAntes),
+            driveIdDurante:    idDurante || _extraerDriveIdMet(fotoDurante),
+            driveIdDespues:    idDespues || _extraerDriveIdMet(fotoDespues),
+            fotoAntes,
+            fotoDurante,
+            fotoDespues,
             // Nombres de archivo (para ordenamiento cronológico)
-            nombreFotoAntes:   (fila['NOMBRE_FOTO_ANTES']   || '').trim(),
-            nombreFotoDurante: (fila['NOMBRE_FOTO_DURANTE'] || '').trim(),
-            nombreFotoDespues: (fila['NOMBRE_FOTO_DESPUES'] || '').trim(),
+            nombreFotoAntes:   valor('NOMBRE_FOTO_ANTES'),
+            nombreFotoDurante: valor('NOMBRE_FOTO_DURANTE'),
+            nombreFotoDespues: valor('NOMBRE_FOTO_DESPUES'),
             // Conteos
-            cntAntes:   parseInt(fila['#ANTES']   || '0') || 0,
-            cntDurante: parseInt(fila['#DURANTE'] || '0') || 0,
-            cntDespues: parseInt(fila['#DESPUES'] || '0') || 0,
+            cntAntes:   parseInt(valor('#ANTES')   || '0', 10) || (fotoAntes ? 1 : 0),
+            cntDurante: parseInt(valor('#DURANTE') || '0', 10) || (fotoDurante ? 1 : 0),
+            cntDespues: parseInt(valor('#DESPUES') || '0', 10) || (fotoDespues ? 1 : 0),
         };
     }).filter(d => d.actividad !== ''); // Ignorar filas completamente vacías
+}
+
+function _extraerDriveIdMet(valor) {
+    if (!valor) return '';
+    const texto = String(valor).trim();
+    const match = texto.match(/\/d\/([a-zA-Z0-9_-]+)/) || texto.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : (/^[a-zA-Z0-9_-]{20,}$/.test(texto) ? texto : '');
+}
+
+function _refFotoMet(d, tipo) {
+    const id = tipo === 'antes' ? d.driveIdAntes : tipo === 'durante' ? d.driveIdDurante : d.driveIdDespues;
+    const url = tipo === 'antes' ? d.fotoAntes : tipo === 'durante' ? d.fotoDurante : d.fotoDespues;
+    return id || url || '';
+}
+
+function _enlaceFotoMet(ref) {
+    if (!ref) return '';
+    return /^https?:\/\//i.test(ref) ? ref : `https://drive.google.com/file/d/${ref}/view`;
+}
+
+function _numeroKmMet(valor) {
+    if (valor === undefined || valor === null || valor === '') return NaN;
+    // Acepta tanto 43000 como el formato vial 43+000.
+    const texto = String(valor).trim().replace(/\s/g, '').replace(',', '.');
+    if (/^\d+(?:\.\d+)?\+\d+$/.test(texto)) return Number(texto.replace('+', ''));
+    return Number(texto);
 }
 
 function poblarSelectoresMet() {
@@ -153,14 +211,14 @@ function aplicarFiltrosMet() {
         }
         // KM INICIAL
         if (kmiOp !== 'ALL' && !isNaN(kmiVal)) {
-            const v = parseFloat(d.kmInicial);
+            const v = _numeroKmMet(d.kmInicial);
             if (kmiOp === 'eq'  && v !== kmiVal) return false;
             if (kmiOp === 'gte' && v < kmiVal)   return false;
             if (kmiOp === 'lte' && v > kmiVal)   return false;
         }
         // KM FINAL
         if (kmfOp !== 'ALL' && !isNaN(kmfVal)) {
-            const v = parseFloat(d.kmFinal);
+            const v = _numeroKmMet(d.kmFinal);
             if (kmfOp === 'eq'  && v !== kmfVal) return false;
             if (kmfOp === 'gte' && v < kmfVal)   return false;
             if (kmfOp === 'lte' && v > kmfVal)   return false;
@@ -326,20 +384,25 @@ function construirCabecerasMet() {
         ${_thMet('fecha',     'Fecha',     'w-[90px] min-w-[90px]')}
         ${_thMetWide('actividad', 'Actividad', 'w-[160px] min-w-[160px]')}
         ${_thMetWide('partida',   'Partida',   'w-[240px] min-w-[240px]')}
-        ${_thMet('kmInicial', 'KM Ini.',   'w-[80px] min-w-[80px]')}
-        ${_thMet('kmFinal',   'KM Fin.',   'w-[80px] min-w-[80px]')}
+        ${_thMet('kmInicial', 'KM Inicial', 'w-[90px] min-w-[90px]')}
+        ${_thMet('kmFinal',   'KM Final',   'w-[90px] min-w-[90px]')}
         ${_thMet('lado',      'Lado',      'w-[70px] min-w-[70px]')}
         ${_thMet('metrado',   'Metrado',   'w-[80px] min-w-[80px]')}
         ${_thMet('unidad',    'Unidad',    'w-[70px] min-w-[70px]')}
         ${_thMet('tramo',     'Tramo',     'w-[100px] min-w-[100px]')}
-        ${_thMetWide('nombreFotoAntes',   'Foto ANTES',   'w-[160px] min-w-[160px]')}
-        ${_thMetWide('nombreFotoDurante', 'Foto DURANTE', 'w-[160px] min-w-[160px]')}
-        ${_thMetWide('nombreFotoDespues', 'Foto DESPUES', 'w-[160px] min-w-[160px]')}
+        ${_thMetWide('nombreFotoAntes',   'FOTO_ANTES',   'w-[160px] min-w-[160px]')}
+        ${_thMetWide('nombreFotoDurante', 'FOTO_DURANTE', 'w-[160px] min-w-[160px]')}
+        ${_thMetWide('nombreFotoDespues', 'FOTO_DESPUES', 'w-[160px] min-w-[160px]')}
     </tr>`;
 }
 
 function _celda_foto_met(driveId, nombreFoto, sufijo) {
     if (!driveId) return `<span class="text-slate-400 italic text-xs">Sin foto</span>`;
+    if (/^https?:\/\//i.test(driveId) && !_extraerDriveIdMet(driveId)) {
+        return `<div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="met-foto-${sufijo}-${_hashFotoMet(driveId)}">
+            <img src="${_escaparHtmlMet(driveId)}" loading="lazy" class="foto-miniatura" alt="${_escaparHtmlMet(nombreFoto || 'Foto')}" onerror="this.replaceWith(document.createTextNode('Ver foto'))">
+        </div>`;
+    }
     return `
     <div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="met-foto-${sufijo}-${driveId}">
         <span class="nombre-foto-oculto">${nombreFoto || ''}</span>
@@ -348,6 +411,14 @@ function _celda_foto_met(driveId, nombreFoto, sufijo) {
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
     </div>`;
+}
+
+function _escaparHtmlMet(valor) {
+    return String(valor || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function _hashFotoMet(valor) {
+    return String(valor).replace(/[^a-zA-Z0-9_-]/g, '').slice(-32);
 }
 
 async function renderizarTablaMet() {
@@ -364,7 +435,7 @@ async function renderizarTablaMet() {
     if (counter) counter.innerText = `Filtro actual: ${filtradosMetrados.length} registros`;
 
     if (filtradosMetrados.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="16" class="text-center py-12 text-slate-500">No se encontraron resultados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="13" class="text-center py-12 text-slate-500">No se encontraron resultados.</td></tr>`;
         if (pagInfo) pagInfo.innerText = 'Mostrando 0 a 0 de 0 registros';
         if (btnPrev) btnPrev.disabled = true;
         if (btnNext) btnNext.disabled = true;
@@ -386,9 +457,12 @@ async function renderizarTablaMet() {
         const tr   = document.createElement('tr');
         tr.className = 'bg-white hover:bg-blue-50 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-default';
 
-        const fotoA = d.driveIdAntes   ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${d.driveIdAntes}')">${_celda_foto_met(d.driveIdAntes,   d.nombreFotoAntes,   'A-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
-        const fotoD = d.driveIdDurante ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${d.driveIdDurante}')">${_celda_foto_met(d.driveIdDurante, d.nombreFotoDurante, 'D-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
-        const fotoE = d.driveIdDespues ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${d.driveIdDespues}')">${_celda_foto_met(d.driveIdDespues, d.nombreFotoDespues, 'E-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
+        const refA = _refFotoMet(d, 'antes');
+        const refD = _refFotoMet(d, 'durante');
+        const refE = _refFotoMet(d, 'despues');
+        const fotoA = refA ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${_escaparHtmlMet(refA)}')">${_celda_foto_met(refA, d.nombreFotoAntes, 'A-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
+        const fotoD = refD ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${_escaparHtmlMet(refD)}')">${_celda_foto_met(refD, d.nombreFotoDurante, 'D-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
+        const fotoE = refE ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${_escaparHtmlMet(refE)}')">${_celda_foto_met(refE, d.nombreFotoDespues, 'E-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
 
         // Indicador visual de completitud (todos 3 tiempos)
         const completo = d.cntAntes > 0 && d.cntDurante > 0 && d.cntDespues > 0;
@@ -455,6 +529,11 @@ async function renderizarTablaMet() {
                         container.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
                     }
                 });
+            } else {
+                ids.forEach(({ containerId }) => {
+                    const c = document.getElementById(containerId);
+                    if (c) c.innerHTML = `<span class="text-xs text-slate-400">Ver foto</span>`;
+                });
             }
         } catch (e) {
             ids.forEach(({ containerId }) => {
@@ -476,7 +555,8 @@ function _badge(cnt, completo) {
 // ==========================================
 function abrirEnDriveMet(id) {
     if (!id) return;
-    window.open(`https://drive.google.com/file/d/${id}/view`, '_blank');
+    const destino = /^https?:\/\//i.test(id) ? id : `https://drive.google.com/file/d/${id}/view`;
+    window.open(destino, '_blank');
 }
 
 // ==========================================
@@ -488,9 +568,9 @@ function exportarCSVMet() {
         'ITEM': i + 1, 'FECHA': d.fecha, 'ACTIVIDAD': d.actividad, 'PARTIDA': d.partida,
         'KM INICIAL': d.kmInicial, 'KM FINAL': d.kmFinal, 'LADO': d.lado,
         'METRADO': d.metrado, 'UNIDAD': d.unidad, 'TRAMO': d.tramo,
-        'FOTO_ANTES': d.driveIdAntes ? `https://drive.google.com/file/d/${d.driveIdAntes}/view` : '',
-        'FOTO_DURANTE': d.driveIdDurante ? `https://drive.google.com/file/d/${d.driveIdDurante}/view` : '',
-        'FOTO_DESPUES': d.driveIdDespues ? `https://drive.google.com/file/d/${d.driveIdDespues}/view` : ''
+        'FOTO_ANTES': _enlaceFotoMet(_refFotoMet(d, 'antes')),
+        'FOTO_DURANTE': _enlaceFotoMet(_refFotoMet(d, 'durante')),
+        'FOTO_DESPUES': _enlaceFotoMet(_refFotoMet(d, 'despues'))
     }));
     const csv = Papa.unparse(data, { quotes: true, header: true, newline: '\n' });
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -537,9 +617,9 @@ async function exportarXLSXMet() {
                 item: i+1, fecha: d.fecha, actividad: d.actividad, partida: d.partida,
                 kmi: d.kmInicial, kmf: d.kmFinal, lado: d.lado, metrado: d.metrado,
                 unidad: d.unidad, tramo: d.tramo,
-                fotoA: d.driveIdAntes   ? { text: 'Ver ANTES 🔗',   hyperlink: `https://drive.google.com/file/d/${d.driveIdAntes}/view`   } : '',
-                fotoD: d.driveIdDurante ? { text: 'Ver DURANTE 🔗', hyperlink: `https://drive.google.com/file/d/${d.driveIdDurante}/view` } : '',
-                fotoE: d.driveIdDespues ? { text: 'Ver DESPUES 🔗', hyperlink: `https://drive.google.com/file/d/${d.driveIdDespues}/view` } : ''
+                fotoA: _refFotoMet(d, 'antes')   ? { text: 'Ver ANTES 🔗',   hyperlink: _enlaceFotoMet(_refFotoMet(d, 'antes')) } : '',
+                fotoD: _refFotoMet(d, 'durante') ? { text: 'Ver DURANTE 🔗', hyperlink: _enlaceFotoMet(_refFotoMet(d, 'durante')) } : '',
+                fotoE: _refFotoMet(d, 'despues') ? { text: 'Ver DESPUES 🔗', hyperlink: _enlaceFotoMet(_refFotoMet(d, 'despues')) } : ''
             });
             row.height = 22;
             row.eachCell(cell => {
