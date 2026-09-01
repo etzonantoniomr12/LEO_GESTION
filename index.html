@@ -48,6 +48,16 @@
             backdrop-filter: blur(2px);
             transition: all 0.3s ease;
         }
+
+        /* Metrados: cada celda adapta su alto al texto disponible, sin
+           recortarlo. Las columnas mantienen un ancho compacto y legible. */
+        #met-tabla-head th,
+        #met-tabla-body td {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            vertical-align: middle;
+        }
         .foto-miniatura { 
             width: 100%; 
             height: auto; 
@@ -630,6 +640,6 @@
     <!-- Script principal -->
     <script src="script.js?v=2"></script>
     <script src="asistencia.js?v=1"></script>
-    <script src="metrados.js?v=3"></script>
+    <script src="metrados.js?v=4"></script>
 </body>
 </html>

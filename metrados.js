@@ -387,7 +387,7 @@ function construirCabecerasMet() {
     <tr class="bg-slate-50 border-b-2 border-[#1c2541] text-[11px] uppercase tracking-wider text-slate-500 font-bold">
         <th class="px-2 py-4 w-[40px] min-w-[40px] text-center">ITEM</th>
         ${_thMet('fecha',     'Fecha',     'w-[90px] min-w-[90px]')}
-        ${_thMetWide('actividad', 'Actividad', 'w-[160px] min-w-[160px]')}
+        ${_thMet('actividad',     'Actividad', 'w-[90px] min-w-[90px]')}
         ${_thMetWide('partida',   'Partida',   'w-[240px] min-w-[240px]')}
         ${_thMet('kmInicial', 'KM Inicial', 'w-[90px] min-w-[90px]')}
         ${_thMet('kmFinal',   'KM Final',   'w-[90px] min-w-[90px]')}
@@ -489,7 +489,7 @@ async function renderizarTablaMet() {
             <td class="px-2 py-3 text-center border-l border-slate-200 w-[90px] min-w-[90px] break-words">
                 <div class="mx-auto text-slate-600 font-mono text-[11px]">${d.fecha || '-'}</div>
             </td>
-            <td class="px-3 py-3 w-[160px] min-w-[160px] whitespace-normal break-words border-l border-slate-200">
+            <td class="px-2 py-3 w-[90px] min-w-[90px] whitespace-normal break-words border-l border-slate-200">
                 <div class="text-xs text-slate-700 font-semibold leading-snug">${d.actividad || '-'}</div>
             </td>
             <td class="px-3 py-3 w-[240px] min-w-[240px] whitespace-normal break-words border-l border-slate-200">
