@@ -2,7 +2,8 @@
 // ESTADO GLOBAL
 // ==========================================
 const SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+// Registro Fotos siempre debe leer REPORTE_FOTOS, no la pestaña predeterminada.
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=REPORTE_FOTOS`;
 
 // Navegación Sidebar
 let isSidebarOpen = false;
@@ -77,7 +78,7 @@ function cambiarVista(vista, esManual = true) {
         btnMetrados  && (btnMetrados.classList.remove(...clsInactive), btnMetrados.classList.add(...clsActive));
         headerMain       && headerMain.classList.remove('hidden');
         headerAsistencia && headerAsistencia.classList.add('hidden');
-        btnExportWord    && btnExportWord.classList.remove('hidden');
+        btnExportWord    && btnExportWord.classList.add('hidden');
         if (typeof inicializarMetrados === 'function') inicializarMetrados();
     }
     
@@ -97,6 +98,10 @@ const GAS_ZIP_URL = "https://script.google.com/macros/s/AKfycbyDCCaKC7tOQoGJRZ6r
 // IMPORTANTE: URL del Web App de Google Apps Script para las Miniaturas
 // Pega aquí la URL de tu segundo Apps Script:
 const GAS_THUMBS_URL = "https://script.google.com/macros/s/AKfycby3n2oEBpKtFzLxv_kw8mfTpV-TDJRwxQFwzZ2pwcSgCh0JXRzhUh3szx04YXpZ63tK/exec";
+
+// Evita volver a pedir fotos al ordenar, filtrar o regresar de página.
+const CACHE_MINIATURAS_REG = new Map();
+const MAX_CACHE_MINIATURAS_REG = 150;
 
 // Elementos del DOM
 const dom = {
@@ -230,7 +235,19 @@ function cargarDatos() {
 
 function procesarDatos(raw) {
     return raw.map(fila => {
-        const desc = (fila['DESCRIPCION'] || '').trim();
+        // Tolera BOM, espacios o cambios de mayúsculas en encabezados.
+        const normalizada = {};
+        Object.keys(fila || {}).forEach(k => {
+            normalizada[String(k).replace(/^\uFEFF/, '').trim().toUpperCase()] = fila[k];
+        });
+        const valor = (...nombres) => {
+            for (const nombre of nombres) {
+                const dato = normalizada[nombre];
+                if (dato !== undefined && dato !== null) return String(dato).trim();
+            }
+            return '';
+        };
+        const desc = valor('DESCRIPCION');
         // Extraer el 'Tiempo' (última línea de la descripción si existe)
         const lineasDesc = desc.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         let tiempoExtrayido = "Sin definir";
@@ -243,18 +260,27 @@ function procesarDatos(raw) {
         }
 
         return {
-            grupo: (fila['GRUPO'] || '').trim(),
-            usuario: (fila['USUARIO'] || '').replace(/\s+/g, ' ').trim().toUpperCase(),
-            fecha: (fila['FECHA'] || '').trim(),
+            grupo: valor('GRUPO'),
+            usuario: valor('USUARIO').replace(/\s+/g, ' ').toUpperCase(),
+            fecha: valor('FECHA'),
             descripcion: desc,
             tiempo: tiempoExtrayido,
-            zona: (fila['ZONA_UTM'] || '').trim(),
-            utmNorte: (fila['UTM_NORTE'] || '').trim(),
-            utmEste: (fila['UTM_ESTE'] || '').trim(),
-            driveId: (fila['DRIVE_FILE_ID'] || '').trim(),
-            nombreFoto: (fila['NOMBRE_FOTO'] || '').trim()
+            zona: valor('ZONA_UTM'),
+            utmNorte: valor('UTM_NORTE'),
+            utmEste: valor('UTM_ESTE'),
+            driveId: valor('DRIVE_FILE_ID'),
+            nombreFoto: valor('NOMBRE_FOTO')
         };
     });
+}
+
+function guardarMiniaturaRegistro(id, dataUrl) {
+    if (!id || !dataUrl) return;
+    if (CACHE_MINIATURAS_REG.has(id)) CACHE_MINIATURAS_REG.delete(id);
+    CACHE_MINIATURAS_REG.set(id, dataUrl);
+    while (CACHE_MINIATURAS_REG.size > MAX_CACHE_MINIATURAS_REG) {
+        CACHE_MINIATURAS_REG.delete(CACHE_MINIATURAS_REG.keys().next().value);
+    }
 }
 
 function poblarSelectores() {
@@ -470,6 +496,7 @@ async function renderizarTabla() {
     dom.btnNext.disabled = paginaActual === totalPaginas;
 
     // PRIMERA FASE: Dibujar la tabla con Spinners (Cargando)
+    const contenedoresFotos = [];
     paginaDatos.forEach((fila, index) => {
         const globalIndex = inicio + index + 1;
         const tr = document.createElement('tr');
@@ -477,8 +504,11 @@ async function renderizarTabla() {
 
         let htmlFoto;
         if (fila.driveId) {
+            // El índice evita IDs HTML duplicados si una foto se repite.
+            const containerId = `foto-container-${globalIndex}-${fila.driveId}`;
+            contenedoresFotos.push({ id: fila.driveId, containerId });
             htmlFoto = `
-            <div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="foto-container-${fila.driveId}">
+            <div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="${containerId}">
                 <span class="nombre-foto-oculto">${fila.nombreFoto || ''}</span>
                 <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -520,38 +550,48 @@ async function renderizarTabla() {
     });
 
     // SEGUNDA FASE: Cargar fotos en Lote (Batching) vía Apps Script
-    const idsBatch = paginaDatos.map(d => d.driveId).filter(id => id);
-    if (idsBatch.length > 0 && GAS_THUMBS_URL !== "PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS") {
+    const idsBatch = [...new Set(contenedoresFotos.map(({ id }) => id))];
+    const pintarMiniaturas = (fuente) => {
+        contenedoresFotos.forEach(({ id, containerId }) => {
+            const container = document.getElementById(containerId);
+            if (container && fuente[id]) {
+                container.innerHTML = `<span class="nombre-foto-oculto">Oculto</span><img src="${fuente[id]}" loading="lazy" class="foto-miniatura">`;
+            }
+        });
+    };
+    const enCache = Object.fromEntries(CACHE_MINIATURAS_REG.entries());
+    pintarMiniaturas(enCache);
+    const idsPendientes = idsBatch.filter(id => !CACHE_MINIATURAS_REG.has(id));
+
+    if (idsPendientes.length > 0 && GAS_THUMBS_URL !== "PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS") {
         try {
             const resp = await fetch(GAS_THUMBS_URL, {
                 method: 'POST',
-                body: JSON.stringify({ ids: idsBatch })
+                body: JSON.stringify({ ids: idsPendientes })
             });
             const data = await resp.json();
             
             if (data.success && data.data) {
-                // Inyectar las fotos en la tabla
-                for (const id of idsBatch) {
-                    const container = document.getElementById(`foto-container-${id}`);
-                    if (container) {
-                        const base64 = data.data[id];
-                        if (base64) {
-                            container.innerHTML = `
-                                <span class="nombre-foto-oculto">Oculto</span>
-                                <img src="${base64}" loading="lazy" class="foto-miniatura">
-                            `;
-                        } else {
-                            // Fallback si esa foto en particular falló
-                            container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
-                        }
-                    }
-                }
+                Object.entries(data.data).forEach(([id, dataUrl]) => guardarMiniaturaRegistro(id, dataUrl));
+                pintarMiniaturas(data.data);
+                contenedoresFotos.forEach(({ id, containerId }) => {
+                    if (data.data[id] || CACHE_MINIATURAS_REG.has(id)) return;
+                    const container = document.getElementById(containerId);
+                    if (container) container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
+                });
+            } else {
+                contenedoresFotos.forEach(({ id, containerId }) => {
+                    if (CACHE_MINIATURAS_REG.has(id)) return;
+                    const container = document.getElementById(containerId);
+                    if (container) container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
+                });
             }
         } catch (error) {
             console.error("Error al cargar fotos en lote:", error);
             // Fallback general en caso de error
-            for (const id of idsBatch) {
-                const container = document.getElementById(`foto-container-${id}`);
+            for (const { id, containerId } of contenedoresFotos) {
+                if (CACHE_MINIATURAS_REG.has(id)) continue;
+                const container = document.getElementById(containerId);
                 if (container) {
                     container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
                 }

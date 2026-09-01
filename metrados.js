@@ -27,6 +27,7 @@ let metradosCargados    = false;
 // ordenar o aplicar filtros. El límite protege la memoria del navegador.
 const CACHE_MINIATURAS_MET = new Map();
 const MAX_CACHE_MINIATURAS_MET = 150;
+const TAMANO_LOTE_MINIATURAS_MET = 20;
 
 // ==========================================
 // SELECTORES DOM (acceso lazy)
@@ -548,28 +549,29 @@ async function renderizarTablaMet() {
     const idsPendientes = uniqueIds.filter(id => !CACHE_MINIATURAS_MET.has(id));
 
     if (idsPendientes.length > 0 && typeof GAS_THUMBS_URL !== 'undefined' && GAS_THUMBS_URL !== 'PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS') {
-        try {
-            const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids: idsPendientes }) });
-            const data = await resp.json();
-            if (data.success && data.data) {
-                Object.entries(data.data).forEach(([id, dataUrl]) => _guardarMiniaturaMet(id, dataUrl));
-                pintarMiniaturas(data.data);
-                ids.forEach(({ id, containerId }) => {
-                    if (data.data[id] || CACHE_MINIATURAS_MET.has(id)) return;
+        // Un panel puede tener 75 fotos. Apps Script responde mejor a lotes
+        // pequeños; cada lote pinta sus fotos antes de pedir el siguiente.
+        for (let i = 0; i < idsPendientes.length; i += TAMANO_LOTE_MINIATURAS_MET) {
+            const lote = idsPendientes.slice(i, i + TAMANO_LOTE_MINIATURAS_MET);
+            try {
+                const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids: lote }) });
+                const data = await resp.json();
+                if (data.success && data.data) {
+                    Object.entries(data.data).forEach(([id, dataUrl]) => _guardarMiniaturaMet(id, dataUrl));
+                    pintarMiniaturas(data.data);
+                }
+            } catch (e) {
+                console.warn('No se pudo cargar un lote de miniaturas de Metrados:', e);
+            }
+
+            // Solo las fotos de este lote que realmente fallaron muestran el
+            // enlace de respaldo; las demás continúan cargando normalmente.
+            lote.forEach(id => {
+                if (CACHE_MINIATURAS_MET.has(id)) return;
+                ids.filter(item => item.id === id).forEach(({ containerId }) => {
                     const container = document.getElementById(containerId);
                     if (container) container.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
                 });
-            } else {
-                ids.filter(({ id }) => !CACHE_MINIATURAS_MET.has(id)).forEach(({ containerId }) => {
-                    const c = document.getElementById(containerId);
-                    if (c) c.innerHTML = `<span class="text-xs text-slate-400">Ver foto</span>`;
-                });
-            }
-        } catch (e) {
-            console.warn('No se pudieron cargar miniaturas de Metrados:', e);
-            ids.filter(({ id }) => !CACHE_MINIATURAS_MET.has(id)).forEach(({ containerId }) => {
-                const c = document.getElementById(containerId);
-                if (c) c.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
             });
         }
     }
