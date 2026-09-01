@@ -159,27 +159,40 @@ function _tieneDatosExportablesMet(d) {
 }
 
 function _leerRegistrosParaExcelMet() {
-    // La exportación se abastece desde una lectura nueva de la hoja, no de la
-    // tabla ya mostrada. Así no hereda filtros, ordenamientos ni una respuesta
-    // antigua retenida por el navegador.
-    const urlSinCache = `${METRADOS_CSV_URL}&_export=${Date.now()}`;
-    return new Promise((resolve, reject) => {
-        Papa.parse(urlSinCache, {
-            download: true,
-            header: true,
-            skipEmptyLines: true,
-            complete: (results) => {
-                if (results.errors?.length) {
-                    console.warn('Advertencias al leer METRADOS para Excel:', results.errors);
-                }
-                const registros = procesarDatosMetrados(results.data)
-                    .filter(_tieneDatosExportablesMet)
-                    .sort((a, b) => a.ordenHoja - b.ordenHoja);
-                resolve(registros);
-            },
-            error: reject
+    // Excel no se construye desde la tabla renderizada ni desde el CSV que
+    // procesa PapaParse. Se consulta la respuesta estructurada de Google
+    // Sheets, cuya propiedad table.rows conserva una entrada por cada fila.
+    const url = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:json&sheet=METRADOS&_export=${Date.now()}`;
+    return fetch(url)
+        .then(resp => {
+            if (!resp.ok) throw new Error(`Google Sheets respondió HTTP ${resp.status}`);
+            return resp.text();
+        })
+        .then(texto => {
+            const inicio = texto.indexOf('{');
+            const fin = texto.lastIndexOf('}');
+            if (inicio < 0 || fin < inicio) throw new Error('Respuesta inválida de Google Sheets.');
+
+            const tabla = JSON.parse(texto.slice(inicio, fin + 1)).table;
+            const encabezados = tabla.cols.map(col => String(col.label || '').trim());
+            const filas = tabla.rows || [];
+            const datosCrudos = filas.map(fila => {
+                const registro = {};
+                encabezados.forEach((encabezado, indice) => {
+                    if (!encabezado) return;
+                    const celda = fila.c?.[indice];
+                    // f conserva exactamente el texto mostrado por Sheets:
+                    // fechas, progresivas como 16+000 y números formateados.
+                    registro[encabezado] = celda ? (celda.f ?? celda.v ?? '') : '';
+                });
+                return registro;
+            });
+            const registros = procesarDatosMetrados(datosCrudos);
+            if (registros.length !== filas.length) {
+                throw new Error(`Control de integridad falló: Sheets entregó ${filas.length} filas y se prepararon ${registros.length}.`);
+            }
+            return registros.sort((a, b) => a.ordenHoja - b.ordenHoja);
         });
-    });
 }
 
 function _extraerDriveIdMet(valor) {
@@ -713,6 +726,7 @@ async function exportarXLSXMet() {
         const buffer = await wb.xlsx.writeBuffer();
         saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Metrados_${new Date().toISOString().slice(0,10)}.xlsx`);
         console.info(`Excel METRADOS generado con ${registros.length} registros en orden de hoja.`);
+        alert(`Excel generado con ${registros.length} registros de METRADOS.`);
     } catch(e) { console.error(e); alert('Error al generar Excel: ' + e.message); }
     finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
 }
