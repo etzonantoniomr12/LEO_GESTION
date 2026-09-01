@@ -102,6 +102,7 @@ const GAS_THUMBS_URL = "https://script.google.com/macros/s/AKfycby3n2oEBpKtFzLxv
 // Evita volver a pedir fotos al ordenar, filtrar o regresar de página.
 const CACHE_MINIATURAS_REG = new Map();
 const MAX_CACHE_MINIATURAS_REG = 150;
+const TAMANO_LOTE_MINIATURAS_REG = 20;
 
 // Elementos del DOM
 const dom = {
@@ -552,38 +553,33 @@ async function renderizarTabla() {
     const idsPendientes = idsBatch.filter(id => !CACHE_MINIATURAS_REG.has(id));
 
     if (idsPendientes.length > 0 && GAS_THUMBS_URL !== "PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS") {
-        try {
-            const resp = await fetch(GAS_THUMBS_URL, {
-                method: 'POST',
-                body: JSON.stringify({ ids: idsPendientes })
-            });
-            const data = await resp.json();
-            
-            if (data.success && data.data) {
-                Object.entries(data.data).forEach(([id, dataUrl]) => guardarMiniaturaRegistro(id, dataUrl));
-                pintarMiniaturas(data.data);
-                contenedoresFotos.forEach(({ id, containerId }) => {
-                    if (data.data[id] || CACHE_MINIATURAS_REG.has(id)) return;
-                    const container = document.getElementById(containerId);
-                    if (container) container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
+        // Mismo patrón validado en Metrados: la respuesta del Apps Script se
+        // procesa de 20 fotos y se pinta antes de solicitar el lote siguiente.
+        for (let i = 0; i < idsPendientes.length; i += TAMANO_LOTE_MINIATURAS_REG) {
+            const lote = idsPendientes.slice(i, i + TAMANO_LOTE_MINIATURAS_REG);
+            try {
+                const resp = await fetch(GAS_THUMBS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ ids: lote })
                 });
-            } else {
-                contenedoresFotos.forEach(({ id, containerId }) => {
-                    if (CACHE_MINIATURAS_REG.has(id)) return;
-                    const container = document.getElementById(containerId);
-                    if (container) container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
-                });
-            }
-        } catch (error) {
-            console.error("Error al cargar fotos en lote:", error);
-            // Fallback general en caso de error
-            for (const { id, containerId } of contenedoresFotos) {
-                if (CACHE_MINIATURAS_REG.has(id)) continue;
-                const container = document.getElementById(containerId);
-                if (container) {
-                    container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
+                const data = await resp.json();
+                if (data.success && data.data) {
+                    Object.entries(data.data).forEach(([id, dataUrl]) => guardarMiniaturaRegistro(id, dataUrl));
+                    pintarMiniaturas(data.data);
                 }
+            } catch (error) {
+                console.error('Error al cargar un lote de fotos de Registro:', error);
             }
+
+            // Solo los elementos del lote que fallaron muestran respaldo; los
+            // demás lotes continúan cargando sin bloquear la página completa.
+            lote.forEach(id => {
+                if (CACHE_MINIATURAS_REG.has(id)) return;
+                contenedoresFotos.filter(item => item.id === id).forEach(({ containerId }) => {
+                    const container = document.getElementById(containerId);
+                    if (container) container.innerHTML = `<span class="text-xs text-slate-400 font-medium">🔗 Ver Foto</span>`;
+                });
+            });
         }
     }
 }

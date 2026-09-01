@@ -158,6 +158,30 @@ function _tieneDatosExportablesMet(d) {
     ].some(valor => String(valor || '').trim() !== '');
 }
 
+function _leerRegistrosParaExcelMet() {
+    // La exportación se abastece desde una lectura nueva de la hoja, no de la
+    // tabla ya mostrada. Así no hereda filtros, ordenamientos ni una respuesta
+    // antigua retenida por el navegador.
+    const urlSinCache = `${METRADOS_CSV_URL}&_export=${Date.now()}`;
+    return new Promise((resolve, reject) => {
+        Papa.parse(urlSinCache, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                if (results.errors?.length) {
+                    console.warn('Advertencias al leer METRADOS para Excel:', results.errors);
+                }
+                const registros = procesarDatosMetrados(results.data)
+                    .filter(_tieneDatosExportablesMet)
+                    .sort((a, b) => a.ordenHoja - b.ordenHoja);
+                resolve(registros);
+            },
+            error: reject
+        });
+    });
+}
+
 function _extraerDriveIdMet(valor) {
     if (!valor) return '';
     const texto = String(valor).trim();
@@ -638,11 +662,14 @@ function exportarCSVMet() {
 // EXPORTACIÓN EXCEL
 // ==========================================
 async function exportarXLSXMet() {
-    if (datosMetradosExportacion.length === 0) { alert('No hay registros para exportar.'); return; }
     const btn = document.getElementById('btn-export-xlsx');
     const origText = btn ? btn.innerHTML : '';
     try {
-        if (btn) { btn.innerHTML = 'Construyendo Excel...'; btn.disabled = true; }
+        if (btn) { btn.innerHTML = 'Leyendo METRADOS...'; btn.disabled = true; }
+        const registros = await _leerRegistrosParaExcelMet();
+        if (registros.length === 0) { alert('No hay registros para exportar.'); return; }
+
+        if (btn) btn.innerHTML = 'Construyendo Excel...';
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet('METRADOS');
         ws.columns = [
@@ -666,8 +693,6 @@ async function exportarXLSXMet() {
             cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
         });
-        const registros = [...datosMetradosExportacion]
-            .sort((a, b) => a.ordenHoja - b.ordenHoja);
         registros.forEach((d, i) => {
             const row = ws.addRow({
                 fecha: d.fecha, actividad: d.actividad, partida: d.partida,
@@ -687,6 +712,7 @@ async function exportarXLSXMet() {
         ws.views = [{ state: 'frozen', ySplit: 1 }];
         const buffer = await wb.xlsx.writeBuffer();
         saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Metrados_${new Date().toISOString().slice(0,10)}.xlsx`);
+        console.info(`Excel METRADOS generado con ${registros.length} registros en orden de hoja.`);
     } catch(e) { console.error(e); alert('Error al generar Excel: ' + e.message); }
     finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
 }
