@@ -23,6 +23,10 @@ let paginaMetrados      = 1;
 const ITEMS_POR_PAG_MET = 25;
 let criteriosMet        = [];
 let metradosCargados    = false;
+// Conserva miniaturas recientes para evitar volver a solicitarlas al paginar,
+// ordenar o aplicar filtros. El límite protege la memoria del navegador.
+const CACHE_MINIATURAS_MET = new Map();
+const MAX_CACHE_MINIATURAS_MET = 150;
 
 // ==========================================
 // SELECTORES DOM (acceso lazy)
@@ -108,6 +112,7 @@ function procesarDatosMetrados(raw) {
         const idDespues = valor('DRIVE_ID_DESPUES');
         return {
             fecha:             valor('FECHA'),
+            grupo:             valor('GRUPO'),
             actividad:         valor('ACTIVIDAD'),
             partida:           valor('PARTIDA'),
             kmInicial:          kmI !== '' ? kmI : '',
@@ -421,6 +426,15 @@ function _hashFotoMet(valor) {
     return String(valor).replace(/[^a-zA-Z0-9_-]/g, '').slice(-32);
 }
 
+function _guardarMiniaturaMet(id, dataUrl) {
+    if (!id || !dataUrl) return;
+    if (CACHE_MINIATURAS_MET.has(id)) CACHE_MINIATURAS_MET.delete(id);
+    CACHE_MINIATURAS_MET.set(id, dataUrl);
+    while (CACHE_MINIATURAS_MET.size > MAX_CACHE_MINIATURAS_MET) {
+        CACHE_MINIATURAS_MET.delete(CACHE_MINIATURAS_MET.keys().next().value);
+    }
+}
+
 async function renderizarTablaMet() {
     construirCabecerasMet();
 
@@ -510,33 +524,50 @@ async function renderizarTablaMet() {
     const ids = [];
     pagina.forEach((d, i) => {
         const gIdx = inicio + i + 1;
-        if (d.driveIdAntes)   ids.push({ id: d.driveIdAntes,   key: `met-foto-A-${gIdx}-${d.driveIdAntes}`,   containerId: `met-foto-A-${gIdx}` });
-        if (d.driveIdDurante) ids.push({ id: d.driveIdDurante, key: `met-foto-D-${gIdx}-${d.driveIdDurante}`, containerId: `met-foto-D-${gIdx}` });
-        if (d.driveIdDespues) ids.push({ id: d.driveIdDespues, key: `met-foto-E-${gIdx}-${d.driveIdDespues}`, containerId: `met-foto-E-${gIdx}` });
+        // El ID del contenedor debe coincidir exactamente con el creado por
+        // _celda_foto_met: incluye tipo, índice global y DRIVE_ID.
+        if (d.driveIdAntes)   ids.push({ id: d.driveIdAntes,   containerId: `met-foto-A-${gIdx}-${d.driveIdAntes}` });
+        if (d.driveIdDurante) ids.push({ id: d.driveIdDurante, containerId: `met-foto-D-${gIdx}-${d.driveIdDurante}` });
+        if (d.driveIdDespues) ids.push({ id: d.driveIdDespues, containerId: `met-foto-E-${gIdx}-${d.driveIdDespues}` });
     });
 
     const uniqueIds = [...new Set(ids.map(x => x.id))];
-    if (uniqueIds.length > 0 && typeof GAS_THUMBS_URL !== 'undefined' && GAS_THUMBS_URL !== 'PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS') {
+    const pintarMiniaturas = (fuente) => {
+        ids.forEach(({ id, containerId }) => {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            if (fuente[id]) {
+                container.innerHTML = `<img src="${fuente[id]}" loading="lazy" class="foto-miniatura" alt="Foto de metrado">`;
+            }
+        });
+    };
+
+    // Mostrar inmediatamente las miniaturas ya descargadas en esta sesión.
+    const enCache = Object.fromEntries(CACHE_MINIATURAS_MET.entries());
+    pintarMiniaturas(enCache);
+    const idsPendientes = uniqueIds.filter(id => !CACHE_MINIATURAS_MET.has(id));
+
+    if (idsPendientes.length > 0 && typeof GAS_THUMBS_URL !== 'undefined' && GAS_THUMBS_URL !== 'PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS') {
         try {
-            const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids: uniqueIds }) });
+            const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids: idsPendientes }) });
             const data = await resp.json();
             if (data.success && data.data) {
+                Object.entries(data.data).forEach(([id, dataUrl]) => _guardarMiniaturaMet(id, dataUrl));
+                pintarMiniaturas(data.data);
                 ids.forEach(({ id, containerId }) => {
+                    if (data.data[id] || CACHE_MINIATURAS_MET.has(id)) return;
                     const container = document.getElementById(containerId);
-                    if (container && data.data[id]) {
-                        container.innerHTML = `<img src="${data.data[id]}" loading="lazy" class="foto-miniatura">`;
-                    } else if (container) {
-                        container.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
-                    }
+                    if (container) container.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
                 });
             } else {
-                ids.forEach(({ containerId }) => {
+                ids.filter(({ id }) => !CACHE_MINIATURAS_MET.has(id)).forEach(({ containerId }) => {
                     const c = document.getElementById(containerId);
                     if (c) c.innerHTML = `<span class="text-xs text-slate-400">Ver foto</span>`;
                 });
             }
         } catch (e) {
-            ids.forEach(({ containerId }) => {
+            console.warn('No se pudieron cargar miniaturas de Metrados:', e);
+            ids.filter(({ id }) => !CACHE_MINIATURAS_MET.has(id)).forEach(({ containerId }) => {
                 const c = document.getElementById(containerId);
                 if (c) c.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
             });
@@ -732,47 +763,114 @@ async function _obtenerImagenesWordMet(registros) {
 }
 
 function _textoTituloWordMet(d) {
-    const actividad = d.partida || d.actividad || 'Actividad sin descripción';
-    const lado = d.lado ? ` lado ${d.lado.toLowerCase()}` : '';
-    const km = d.kmInicial || d.kmFinal ? ` km ${d.kmInicial || ''}-${d.kmFinal || ''}` : '';
-    return `${actividad}${lado}${km}`.trim();
+    return d.partida || d.actividad || 'Partida sin descripción';
 }
 
-async function exportarWordMet() {
+function _textoKmWordMet(d) {
+    return `KM INICIAL: ${d.kmInicial || '-'}    KM FINAL: ${d.kmFinal || '-'}`;
+}
+
+function _progresivaEnMetrosMet(valor) {
+    const numero = _numeroKmMet(valor);
+    if (Number.isNaN(numero)) return NaN;
+    // 43+000 se interpreta como 43000; un valor 43.0 se interpreta como km.
+    return numero < 1000 ? numero * 1000 : numero;
+}
+
+function _grupoPorProgresivaMet(valor) {
+    const metros = _progresivaEnMetrosMet(valor);
+    if (Number.isNaN(metros)) return 'SIN ASIGNAR';
+    if (metros < 45000) return 'GP-01';
+    if (metros < 90000) return 'GP-03';
+    if (metros < 138000) return 'GP-04';
+    if (metros <= 174300) return 'GP-05';
+    if (metros > 174300) return 'ERROR';
+    return 'SIN ASIGNAR';
+}
+
+function _tramoPorProgresivaMet(valor, tramoRegistrado) {
+    const metros = _progresivaEnMetrosMet(valor);
+    if (!Number.isNaN(metros)) {
+        if (metros <= 23800) return 'I';
+        if (metros <= 62500) return 'II';
+        if (metros <= 77250) return 'III';
+        if (metros <= 107850) return 'IV';
+        if (metros <= 161450) return 'V';
+        if (metros <= 172000) return 'VI';
+        if (metros <= 174100) return 'VII';
+    }
+    return String(tramoRegistrado || 'SIN TRAMO').replace(/^TRAMO\s*/i, '').trim() || 'SIN TRAMO';
+}
+
+function _textoSeguroNombreArchivoMet(texto) {
+    return String(texto || '').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+async function _generarWordUnicoMet() {
     if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
     if (typeof docx === 'undefined') {
         alert('No se pudo cargar el generador de documentos Word. Verifica tu conexión a Internet.');
         return;
     }
-    const btn = document.getElementById('btn-export-word');
+    const btn = document.getElementById('met-btn-export-word') || document.getElementById('btn-export-word');
     const original = btn ? btn.innerHTML : '';
     try {
         if (btn) { btn.disabled = true; btn.innerHTML = 'Generando Word...'; }
         filtradosMetrados.forEach((d, i) => { d.__metWordKey = String(i); });
         const imagenes = await _obtenerImagenesWordMet(filtradosMetrados);
-        const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, Table, TableCell, TableRow, WidthType, BorderStyle } = docx;
+        const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType } = docx;
         const children = [];
 
         filtradosMetrados.forEach((d, i) => {
-            if (i > 0) children.push(new Paragraph({ pageBreakBefore: true }));
-            const fecha = d.fecha || '-';
-            const tramo = `ACTIVIDAD: ${d.actividad || '-'}  |  TRAMO: ${d.tramo || '-'}`;
-            children.push(new Table({
-                width: { size: 35, type: WidthType.PERCENTAGE }, alignment: AlignmentType.RIGHT,
-                rows: [new TableRow({ cells: [new TableCell({
-                    children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `FECHA: ${fecha}`, bold: true, font: 'Arial', size: 24 })] })],
-                    borders: { top: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' }, bottom: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' }, left: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' }, right: { style: BorderStyle.SINGLE, size: 10, color: '2F6B85' } }
-                })] })]
+            const esPrimeraHoja = i === 0;
+            const altoFoto = esPrimeraHoja ? 205 : 235;
+            const anchoFoto = esPrimeraHoja ? 307 : 352;
+
+            // Solo la primera hoja lleva cabecera de fecha, grupo y tramo.
+            if (esPrimeraHoja) {
+                children.push(new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 90 },
+                    children: [new TextRun({ text: `FECHA: ${d.fecha || '-'}`, bold: true, font: 'Arial', size: 24 })]
+                }));
+                children.push(new Paragraph({
+                    spacing: { after: 120 },
+                    children: [new TextRun({ text: `GRUPO: ${d.grupo || d.actividad || '-'}    TRAMO: ${d.tramo || '-'}`, bold: true, font: 'Arial', size: 22 })]
+                }));
+            }
+
+            // Cada partida empieza en una página nueva a partir de la segunda,
+            // por lo que sus tres fotos nunca se mezclan con la partida siguiente.
+            children.push(new Paragraph({
+                pageBreakBefore: !esPrimeraHoja,
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 45 },
+                keepNext: true,
+                children: [new TextRun({ text: _textoTituloWordMet(d), bold: true, font: 'Arial', size: 26 })]
             }));
-            children.push(new Paragraph({ spacing: { before: 140, after: 80 }, children: [new TextRun({ text: tramo, bold: true, font: 'Arial', size: 24, highlight: 'yellow' })] }));
-            children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 120 }, children: [new TextRun({ text: _textoTituloWordMet(d), bold: true, font: 'Arial', size: 28 })] }));
+            children.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 100 },
+                keepNext: true,
+                children: [new TextRun({ text: _textoKmWordMet(d), bold: true, font: 'Arial', size: 20 })]
+            }));
             ['antes', 'durante', 'despues'].forEach(tipo => {
                 const bytes = imagenes.get(`${d.__metWordKey}|${tipo}`);
-                if (bytes) children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new ImageRun({ data: bytes, transformation: { height: 257, width: 385 } })] }));
+                if (!bytes) return;
+                children.push(new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 75 },
+                    children: [new ImageRun({ data: bytes, transformation: { height: altoFoto, width: anchoFoto } })]
+                }));
             });
         });
 
-        const documento = new Document({ sections: [{ properties: { page: { margin: { top: 900, right: 900, bottom: 900, left: 900 } } }, children }] });
+        const documento = new Document({
+            sections: [{
+                properties: { page: { margin: { top: 720, right: 900, bottom: 720, left: 900 } } },
+                children
+            }]
+        });
         const blob = await Packer.toBlob(documento);
         saveAs(blob, `METRADOS_${new Date().toISOString().slice(0, 10)}.docx`);
     } catch (e) {
@@ -782,6 +880,100 @@ async function exportarWordMet() {
         filtradosMetrados.forEach(d => delete d.__metWordKey);
         if (btn) { btn.innerHTML = original; btn.disabled = false; }
     }
+}
+
+let colaWordsMet = [];
+
+function _fechaNombreWordMet(fecha) {
+    const iso = String(fecha || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+    const local = String(fecha || '').match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (local) return `${local[1].padStart(2, '0')}-${local[2].padStart(2, '0')}-${local[3]}`;
+    return _textoSeguroNombreArchivoMet(fecha || 'SIN-FECHA');
+}
+
+function _crearColaWordsMet() {
+    const trabajos = new Map();
+    filtradosMetrados.forEach(d => {
+        const progresiva = d.kmInicial || d.kmFinal;
+        const grupo = _grupoPorProgresivaMet(progresiva);
+        const tramo = _tramoPorProgresivaMet(progresiva, d.tramo);
+        const clave = `${grupo}|${tramo}`;
+        if (!trabajos.has(clave)) trabajos.set(clave, { grupo, tramo, registros: [], estado: 'Pendiente', error: '' });
+        trabajos.get(clave).registros.push(d);
+    });
+    return [...trabajos.values()]
+        .map((t, id) => ({ ...t, id, registros: t.registros.sort((a, b) => _progresivaEnMetrosMet(a.kmInicial) - _progresivaEnMetrosMet(b.kmInicial)) }))
+        .sort((a, b) => `${a.grupo}-${a.tramo}`.localeCompare(`${b.grupo}-${b.tramo}`, undefined, { numeric: true }));
+}
+
+function _nombreWordColaMet(trabajo) {
+    const grupo = String(trabajo.grupo).replace(/^GP-/i, '').padStart(2, '0');
+    const fecha = _fechaNombreWordMet(trabajo.registros[0]?.fecha);
+    return `GRUPO ${grupo} - ${fecha} TRAMO ${trabajo.tramo}.docx`;
+}
+
+function _mostrarColaWordsMet() {
+    document.getElementById('met-word-queue')?.remove();
+    const panel = document.createElement('div');
+    panel.id = 'met-word-queue';
+    panel.className = 'fixed inset-0 z-[100] bg-slate-950/70 flex items-center justify-center p-4';
+    const filas = colaWordsMet.map(t => `<div class="flex items-center justify-between gap-4 py-3 border-b border-slate-200">
+        <div><p class="font-bold text-slate-800">${_nombreWordColaMet(t)}</p><p class="text-sm text-slate-500">${t.registros.length} partidas · ${t.estado}${t.error ? `: ${t.error}` : ''}</p></div>
+        <button data-word-id="${t.id}" ${t.estado === 'Generando' ? 'disabled' : ''} class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-white font-bold text-sm disabled:opacity-50">Generar y descargar</button>
+    </div>`).join('');
+    panel.innerHTML = `<div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"><div class="p-5 border-b border-slate-200 flex justify-between"><div><h2 class="font-bold text-lg">Cola de documentos Word</h2><p class="text-sm text-slate-500">${colaWordsMet.length} documento(s). Descarga uno por uno para controlar el proceso.</p></div><button id="met-word-close" class="text-2xl text-slate-500">×</button></div><div class="px-5 max-h-[65vh] overflow-y-auto">${filas}</div></div>`;
+    document.body.appendChild(panel);
+    panel.querySelector('#met-word-close').addEventListener('click', () => panel.remove());
+    panel.querySelectorAll('[data-word-id]').forEach(b => b.addEventListener('click', () => generarWordColaMet(Number(b.dataset.wordId))));
+}
+
+async function _crearBlobWordColaMet(trabajo) {
+    const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType } = docx;
+    trabajo.registros.forEach((d, i) => { d.__metWordKey = String(i); });
+    try {
+        const imagenes = await _obtenerImagenesWordMet(trabajo.registros);
+        const children = [];
+        trabajo.registros.forEach((d, i) => {
+            const primera = i === 0;
+            const alto = primera ? 205 : 235;
+            const ancho = primera ? 307 : 352;
+            if (primera) {
+                children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 90 }, children: [new TextRun({ text: `FECHA: ${d.fecha || '-'}`, bold: true, font: 'Arial', size: 24 })] }));
+                children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `GRUPO: ${trabajo.grupo}    TRAMO: ${trabajo.tramo}`, bold: true, font: 'Arial', size: 22 })] }));
+            }
+            children.push(new Paragraph({ pageBreakBefore: !primera, alignment: AlignmentType.CENTER, spacing: { after: 45 }, children: [new TextRun({ text: _textoTituloWordMet(d), bold: true, font: 'Arial', size: 26 })] }));
+            children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new TextRun({ text: _textoKmWordMet(d), bold: true, font: 'Arial', size: 20 })] }));
+            ['antes', 'durante', 'despues'].forEach(tipo => {
+                const bytes = imagenes.get(`${d.__metWordKey}|${tipo}`);
+                if (bytes) children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 75 }, children: [new ImageRun({ data: bytes, transformation: { height: alto, width: ancho } })] }));
+            });
+        });
+        return await Packer.toBlob(new Document({ sections: [{ properties: { page: { margin: { top: 720, right: 900, bottom: 720, left: 900 } } }, children }] }));
+    } finally {
+        trabajo.registros.forEach(d => delete d.__metWordKey);
+    }
+}
+
+async function generarWordColaMet(id) {
+    const trabajo = colaWordsMet.find(t => t.id === id);
+    if (!trabajo || trabajo.estado === 'Generando') return;
+    if (typeof docx === 'undefined') { alert('No se pudo cargar el generador Word. Verifica tu conexión.'); return; }
+    trabajo.estado = 'Generando'; trabajo.error = ''; _mostrarColaWordsMet();
+    try {
+        saveAs(await _crearBlobWordColaMet(trabajo), _nombreWordColaMet(trabajo));
+        trabajo.estado = 'Descargado';
+    } catch (e) {
+        console.error(e);
+        trabajo.estado = 'Error'; trabajo.error = e.message || 'Error desconocido';
+    }
+    _mostrarColaWordsMet();
+}
+
+function exportarWordMet() {
+    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
+    colaWordsMet = _crearColaWordsMet();
+    _mostrarColaWordsMet();
 }
 
 async function descargarFotosMet() {
@@ -816,6 +1008,7 @@ async function descargarFotosMet() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     configurarEventosMet();
-    const btnWord = $m('btn-export-word');
-    if (btnWord) btnWord.addEventListener('click', exportarWordMet);
+    [$m('btn-export-word'), $m('met-btn-export-word')].forEach(btnWord => {
+        if (btnWord) btnWord.addEventListener('click', exportarWordMet);
+    });
 });

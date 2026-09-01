@@ -1,8 +1,8 @@
-const CACHE_NAME = 'reportes-vial-v2';
+const CACHE_NAME = 'reportes-vial-v3';
 const urlsToCache = [
   './index.html',
   './script.js?v=2',
-  './metrados.js?v=2',
+  './metrados.js?v=3',
   './manifest.json',
   'https://cdn.tailwindcss.com',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',
