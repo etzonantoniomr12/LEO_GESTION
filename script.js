@@ -78,7 +78,7 @@ function cambiarVista(vista, esManual = true) {
         btnMetrados  && (btnMetrados.classList.remove(...clsInactive), btnMetrados.classList.add(...clsActive));
         headerMain       && headerMain.classList.remove('hidden');
         headerAsistencia && headerAsistencia.classList.add('hidden');
-        btnExportWord    && btnExportWord.classList.add('hidden');
+        btnExportWord    && btnExportWord.classList.remove('hidden');
         if (typeof inicializarMetrados === 'function') inicializarMetrados();
     }
     
@@ -118,9 +118,7 @@ const dom = {
     
     // Contadores Exportación y Búsqueda
     btnBuscar: document.getElementById('btn-buscar'),
-    btnCsv: document.getElementById('btn-export-csv'),
     btnXlsx: document.getElementById('btn-export-xlsx'),
-    btnPdf: document.getElementById('btn-export-pdf'),
     btnZip: document.getElementById('btn-download-zip'),
     
     // Paginación
@@ -173,20 +171,10 @@ function configurarEventos() {
     });
     
     // Exportaciones
-    dom.btnCsv.addEventListener('click', () => {
-        const vista = sessionStorage.getItem('vistaActual');
-        if (vista === 'metrados' && typeof exportarCSVMet === 'function') exportarCSVMet();
-        else exportarCSV();
-    });
     dom.btnXlsx.addEventListener('click', () => {
         const vista = sessionStorage.getItem('vistaActual');
         if (vista === 'metrados' && typeof exportarXLSXMet === 'function') exportarXLSXMet();
         else exportarXLSX();
-    });
-    dom.btnPdf.addEventListener('click', () => {
-        const vista = sessionStorage.getItem('vistaActual');
-        if (vista === 'metrados' && typeof exportarPDFMet === 'function') exportarPDFMet();
-        else exportarPDF();
     });
     dom.btnZip.addEventListener('click', () => {
         const vista = sessionStorage.getItem('vistaActual');
@@ -683,9 +671,10 @@ if ('serviceWorker' in navigator) {
 }
 
 
-// ==========================================
-// EXPORTACIÓN A PDF CON jsPDF y jspdf-autotable
-// ==========================================
+/* Exportación PDF retirada del encabezado compartido el 2026-09-01.
+   Se conserva temporalmente este bloque como referencia interna; no se carga
+   ni se puede ejecutar desde la interfaz. */
+/*
 async function exportarPDF() {
     if (datosFiltrados.length === 0) {
         alert("No hay registros para exportar.");
@@ -896,6 +885,7 @@ async function exportarPDF() {
         dom.btnPdf.innerHTML = originalText;
     }
 }
+*/
 
 // ==========================================
 // EXPORTACIÓN A CSV (Texto Puro)

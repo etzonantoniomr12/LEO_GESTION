@@ -119,7 +119,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <!-- Librería para Excel XLSX -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
     <style>
         /* Dropdown Excel */
         .excel-dropdown { position: relative; display: inline-block; }
@@ -228,25 +227,24 @@
                 
                 <!-- Acciones REGISTRO / METRADOS -->
                 <div id="header-actions-main" class="flex items-center gap-3">
-                    <!-- Dropdown Exportar -->
+                    <!-- Exportación única a Excel -->
                     <div class="relative group">
-                        <button class="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed border border-white/10">
+                        <button id="btn-export-xlsx" class="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed border border-white/10">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            Exportar Data
+                            EXPORTAR EXCEL
                         </button>
-                        <!-- Menú desplegable -->
-                        <div class="absolute left-0 mt-2 w-48 bg-white rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 overflow-hidden">
+                        <div class="hidden">
                             <button id="btn-export-csv" class="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2 border-b border-slate-100">
                                 <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                                 CSV (Sólo Texto)
                             </button>
-                            <button id="btn-export-xlsx" class="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2">
+                            <button class="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2">
                                 <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                                 EXCEL (Con Enlaces)
                             </button>
                         </div>
                     </div>
-                    <button id="btn-export-pdf" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button id="btn-export-pdf-retired" class="hidden">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         Exportar PDF
                     </button>
@@ -592,10 +590,6 @@
                 <!-- Counter + Botón Buscar -->
                 <div class="flex items-center gap-3 mt-1">
                     <span id="met-counter-info" class="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 whitespace-nowrap">Cargando...</span>
-                    <button id="met-btn-export-word" class="bg-blue-700 hover:bg-blue-600 text-white font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md active:scale-95">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2zm3 4h4m-4 4h4m-4 4h4"></path></svg>
-                        <span class="text-sm">EXPORTAR WORD</span>
-                    </button>
                     <button id="met-btn-buscar" class="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md active:scale-95">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         <span class="text-sm">BUSCAR</span>
@@ -638,8 +632,8 @@
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
-    <script src="script.js?v=3"></script>
+    <script src="script.js?v=4"></script>
     <script src="asistencia.js?v=1"></script>
-    <script src="metrados.js?v=5"></script>
+    <script src="metrados.js?v=6"></script>
 </body>
 </html>

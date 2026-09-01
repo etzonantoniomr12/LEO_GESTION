@@ -159,6 +159,11 @@ function _enlaceFotoMet(ref) {
     return /^https?:\/\//i.test(ref) ? ref : `https://drive.google.com/file/d/${ref}/view`;
 }
 
+function _enlaceDescargaFotoMet(ref) {
+    const id = _extraerDriveIdMet(ref);
+    return id ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}` : _enlaceFotoMet(ref);
+}
+
 function _numeroKmMet(valor) {
     if (valor === undefined || valor === null || valor === '') return NaN;
     // Acepta tanto 43000 como el formato vial 43+000.
@@ -616,27 +621,26 @@ function exportarCSVMet() {
 // EXPORTACIÓN EXCEL
 // ==========================================
 async function exportarXLSXMet() {
-    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
+    if (datosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
     const btn = document.getElementById('btn-export-xlsx');
     const origText = btn ? btn.innerHTML : '';
     try {
         if (btn) { btn.innerHTML = 'Construyendo Excel...'; btn.disabled = true; }
         const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet('Metrados');
+        const ws = wb.addWorksheet('METRADOS');
         ws.columns = [
-            { header: 'Ítem',       key: 'item',      width: 6  },
-            { header: 'Fecha',      key: 'fecha',     width: 14 },
-            { header: 'Actividad',  key: 'actividad', width: 30 },
-            { header: 'Partida',    key: 'partida',   width: 40 },
-            { header: 'KM Inicial', key: 'kmi',       width: 12 },
-            { header: 'KM Final',   key: 'kmf',       width: 12 },
-            { header: 'Lado',       key: 'lado',      width: 8  },
-            { header: 'Metrado',    key: 'metrado',   width: 10 },
-            { header: 'Unidad',     key: 'unidad',    width: 8  },
-            { header: 'Tramo',      key: 'tramo',     width: 12 },
-            { header: 'Foto ANTES',    key: 'fotoA', width: 20 },
-            { header: 'Foto DURANTE',  key: 'fotoD', width: 20 },
-            { header: 'Foto DESPUES',  key: 'fotoE', width: 20 },
+            { header: 'FECHA',        key: 'fecha',     width: 14 },
+            { header: 'ACTIVIDAD',    key: 'actividad', width: 16 },
+            { header: 'PARTIDA',      key: 'partida',   width: 42 },
+            { header: 'KM INICIAL',   key: 'kmi',       width: 14 },
+            { header: 'KM FINAL',     key: 'kmf',       width: 14 },
+            { header: 'LADO',         key: 'lado',      width: 10 },
+            { header: 'METRADO',      key: 'metrado',   width: 12 },
+            { header: 'UNIDAD',       key: 'unidad',    width: 10 },
+            { header: 'TRAMO',        key: 'tramo',     width: 14 },
+            { header: 'FOTO_ANTES',   key: 'fotoA',     width: 22 },
+            { header: 'FOTO_DURANTE', key: 'fotoD',     width: 22 },
+            { header: 'FOTO_DESPUES', key: 'fotoE',     width: 22 },
         ];
         const hr = ws.getRow(1);
         hr.height = 25;
@@ -645,14 +649,14 @@ async function exportarXLSXMet() {
             cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
         });
-        filtradosMetrados.forEach((d, i) => {
+        datosMetrados.forEach((d, i) => {
             const row = ws.addRow({
-                item: i+1, fecha: d.fecha, actividad: d.actividad, partida: d.partida,
+                fecha: d.fecha, actividad: d.actividad, partida: d.partida,
                 kmi: d.kmInicial, kmf: d.kmFinal, lado: d.lado, metrado: d.metrado,
                 unidad: d.unidad, tramo: d.tramo,
-                fotoA: _refFotoMet(d, 'antes')   ? { text: 'Ver ANTES 🔗',   hyperlink: _enlaceFotoMet(_refFotoMet(d, 'antes')) } : '',
-                fotoD: _refFotoMet(d, 'durante') ? { text: 'Ver DURANTE 🔗', hyperlink: _enlaceFotoMet(_refFotoMet(d, 'durante')) } : '',
-                fotoE: _refFotoMet(d, 'despues') ? { text: 'Ver DESPUES 🔗', hyperlink: _enlaceFotoMet(_refFotoMet(d, 'despues')) } : ''
+                fotoA: _refFotoMet(d, 'antes')   ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'antes')) } : '',
+                fotoD: _refFotoMet(d, 'durante') ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'durante')) } : '',
+                fotoE: _refFotoMet(d, 'despues') ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'despues')) } : ''
             });
             row.height = 22;
             row.eachCell(cell => {
@@ -665,35 +669,6 @@ async function exportarXLSXMet() {
         const buffer = await wb.xlsx.writeBuffer();
         saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Metrados_${new Date().toISOString().slice(0,10)}.xlsx`);
     } catch(e) { console.error(e); alert('Error al generar Excel: ' + e.message); }
-    finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
-}
-
-// ==========================================
-// EXPORTACIÓN PDF (simplificado, sin fotos embebidas para velocidad)
-// ==========================================
-async function exportarPDFMet() {
-    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
-    const btn = document.getElementById('btn-export-pdf');
-    const origText = btn ? btn.innerHTML : '';
-    try {
-        if (btn) { btn.innerHTML = 'Generando PDF...'; btn.disabled = true; }
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF('l', 'pt', 'a4'); // Landscape para más columnas
-        const tableData = filtradosMetrados.map((d, i) => [
-            i+1, d.fecha, d.actividad, d.partida,
-            d.kmInicial, d.kmFinal, d.lado, d.metrado, d.unidad, d.tramo
-        ]);
-        doc.autoTable({
-            head: [['#','Fecha','Actividad','Partida','KM Ini','KM Fin','Lado','Metrado','Unidad','Tramo']],
-            body: tableData,
-            startY: 40,
-            theme: 'grid',
-            styles: { fontSize: 7, valign: 'middle', halign: 'center', cellPadding: 2 },
-            headStyles: { fillColor: [11,19,43], textColor: [255,255,255] },
-            columnStyles: { 2: { cellWidth: 70, halign:'left' }, 3: { cellWidth: 90, halign:'left' } }
-        });
-        doc.save(`Metrados_${new Date().toISOString().slice(0,10)}.pdf`);
-    } catch(e) { console.error(e); alert('Error al generar PDF.'); }
     finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
 }
 
@@ -973,9 +948,7 @@ async function generarWordColaMet(id) {
 }
 
 function exportarWordMet() {
-    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
-    colaWordsMet = _crearColaWordsMet();
-    _mostrarColaWordsMet();
+    window.open('https://drive.google.com/drive/folders/1HDNKmVu2XRf0mqtdnxd-4ndJw8hmkhJG?usp=drive_link', '_blank', 'noopener');
 }
 
 async function descargarFotosMet() {
@@ -1010,7 +983,5 @@ async function descargarFotosMet() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     configurarEventosMet();
-    [$m('btn-export-word'), $m('met-btn-export-word')].forEach(btnWord => {
-        if (btnWord) btnWord.addEventListener('click', exportarWordMet);
-    });
+    $m('btn-export-word')?.addEventListener('click', exportarWordMet);
 });
