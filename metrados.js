@@ -18,6 +18,9 @@ const COLUMNAS_VISIBLES_MET = [
 
 // --- Estado global del módulo ---
 let datosMetrados       = [];
+// Copia íntegra de A:L en el orden físico recibido de la hoja. Esta colección
+// es exclusiva para Excel: nunca se ordena ni se limita por filtros visuales.
+let datosMetradosExportacion = [];
 let filtradosMetrados   = [];
 let paginaMetrados      = 1;
 const ITEMS_POR_PAG_MET = 25;
@@ -71,7 +74,12 @@ function cargarDatosMetrados() {
         header: true,
         skipEmptyLines: true,
         complete: (results) => {
-            datosMetrados     = procesarDatosMetrados(results.data);
+            const filasLeidas = procesarDatosMetrados(results.data);
+            // La tabla solo muestra registros con actividad, pero el Excel debe
+            // conservar cualquier fila que tenga información en A:L y respetar
+            // exactamente la posición de origen.
+            datosMetradosExportacion = filasLeidas.filter(_tieneDatosExportablesMet);
+            datosMetrados     = datosMetradosExportacion.filter(d => d.actividad !== '');
             filtradosMetrados = [...datosMetrados];
             metradosCargados  = true;
 
@@ -88,7 +96,7 @@ function cargarDatosMetrados() {
 }
 
 function procesarDatosMetrados(raw) {
-    return raw.map(fila => {
+    return raw.map((fila, ordenHoja) => {
         // Google Sheets puede devolver BOM, espacios o cambios de mayúsculas
         // en los encabezados. Normalizar aquí evita leer una columna distinta.
         const normalizada = {};
@@ -112,6 +120,7 @@ function procesarDatosMetrados(raw) {
         const idDurante = valor('DRIVE_ID_DURANTE');
         const idDespues = valor('DRIVE_ID_DESPUES');
         return {
+            ordenHoja,
             fecha:             valor('FECHA'),
             grupo:             valor('GRUPO'),
             actividad:         valor('ACTIVIDAD'),
@@ -138,7 +147,15 @@ function procesarDatosMetrados(raw) {
             cntDurante: parseInt(valor('#DURANTE') || '0', 10) || (fotoDurante ? 1 : 0),
             cntDespues: parseInt(valor('#DESPUES') || '0', 10) || (fotoDespues ? 1 : 0),
         };
-    }).filter(d => d.actividad !== ''); // Ignorar filas completamente vacías
+    });
+}
+
+function _tieneDatosExportablesMet(d) {
+    return [
+        d.fecha, d.actividad, d.partida, d.kmInicial, d.kmFinal, d.lado,
+        d.metrado, d.unidad, d.tramo, d.fotoAntes, d.fotoDurante, d.fotoDespues,
+        d.driveIdAntes, d.driveIdDurante, d.driveIdDespues
+    ].some(valor => String(valor || '').trim() !== '');
 }
 
 function _extraerDriveIdMet(valor) {
@@ -621,7 +638,7 @@ function exportarCSVMet() {
 // EXPORTACIÓN EXCEL
 // ==========================================
 async function exportarXLSXMet() {
-    if (datosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
+    if (datosMetradosExportacion.length === 0) { alert('No hay registros para exportar.'); return; }
     const btn = document.getElementById('btn-export-xlsx');
     const origText = btn ? btn.innerHTML : '';
     try {
@@ -649,7 +666,9 @@ async function exportarXLSXMet() {
             cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
         });
-        datosMetrados.forEach((d, i) => {
+        const registros = [...datosMetradosExportacion]
+            .sort((a, b) => a.ordenHoja - b.ordenHoja);
+        registros.forEach((d, i) => {
             const row = ws.addRow({
                 fecha: d.fecha, actividad: d.actividad, partida: d.partida,
                 kmi: d.kmInicial, kmf: d.kmFinal, lado: d.lado, metrado: d.metrado,
