@@ -163,6 +163,23 @@ function configurarEventos() {
     // Filtros: Ya no disparan "aplicarFiltros" al instante, solo cambian su estilo visual si quieres.
     // Ahora todo se dispara al presionar el botón "Buscar".
     dom.btnBuscar.addEventListener('click', aplicarFiltros);
+
+    // Grupo y Usuario son filtros alternativos: elegir uno elimina el otro.
+    dom.fGrupo.addEventListener('change', () => {
+        if (dom.fGrupo.value !== 'ALL') dom.fUsuario.value = 'ALL';
+    });
+    dom.fUsuario.addEventListener('change', () => {
+        if (dom.fUsuario.value !== 'ALL') dom.fGrupo.value = 'ALL';
+    });
+
+    // "Todas las fechas" equivale a no tener fecha escrita. Si el usuario
+    // escribe o selecciona una fecha, el criterio natural pasa a ser "Igual a".
+    dom.fFechaOp.addEventListener('change', () => {
+        if (dom.fFechaOp.value === 'ALL') dom.fFechaVal.value = '';
+    });
+    dom.fFechaVal.addEventListener('change', () => {
+        if (dom.fFechaVal.value) dom.fFechaOp.value = 'eq';
+    });
     
     // Permitir buscar al presionar "Enter" en la caja de descripción
     dom.fDescripcion.addEventListener('keyup', (e) => {

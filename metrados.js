@@ -226,6 +226,13 @@ function _numeroKmMet(valor) {
     return Number(texto);
 }
 
+// Excel debe recibir un número para que se pueda sumar, filtrar o reutilizar.
+// La apariencia vial se aplica después mediante el formato de celda 0+000.
+function _progresivaParaExcelMet(valor) {
+    const numero = _numeroKmMet(valor);
+    return Number.isFinite(numero) ? numero : valor;
+}
+
 function poblarSelectoresMet() {
     const lados  = [...new Set(datosMetrados.map(d => d.lado).filter(Boolean))].sort();
     const tramos = [...new Set(datosMetrados.map(d => d.tramo).filter(Boolean))].sort();
@@ -300,14 +307,10 @@ function aplicarFiltrosMet() {
         return true;
     });
 
-    // Ordenamiento multicriterio
+    // Sin encabezados ordenados, conservar el orden físico de METRADOS.
+    // Los filtros solo reducen las filas visibles; no alteran su posición.
     if (criteriosMet.length === 0) {
-        // Default: más reciente primero por fecha
-        filtradosMetrados.sort((a, b) => {
-            if (a.fecha < b.fecha) return 1;
-            if (a.fecha > b.fecha) return -1;
-            return 0;
-        });
+        filtradosMetrados.sort((a, b) => a.ordenHoja - b.ordenHoja);
     } else {
         filtradosMetrados.sort((a, b) => {
             for (let i = 0; i < criteriosMet.length; i++) {
@@ -709,7 +712,8 @@ async function exportarXLSXMet() {
         registros.forEach((d, i) => {
             const row = ws.addRow({
                 fecha: d.fecha, actividad: d.actividad, partida: d.partida,
-                kmi: d.kmInicial, kmf: d.kmFinal, lado: d.lado, metrado: d.metrado,
+                kmi: _progresivaParaExcelMet(d.kmInicial),
+                kmf: _progresivaParaExcelMet(d.kmFinal), lado: d.lado, metrado: d.metrado,
                 unidad: d.unidad, tramo: d.tramo,
                 fotoA: _refFotoMet(d, 'antes')   ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'antes')) } : '',
                 fotoD: _refFotoMet(d, 'durante') ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'durante')) } : '',
@@ -721,6 +725,9 @@ async function exportarXLSXMet() {
                 cell.border = { top: { style:'thin', color:{argb:'FFCBCFD8'} }, bottom: { style:'thin', color:{argb:'FFCBCFD8'} }, left: { style:'thin', color:{argb:'FFCBCFD8'} }, right: { style:'thin', color:{argb:'FFCBCFD8'} } };
                 if (i % 2 === 1) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8FAFC' } };
             });
+            // D y E: valor numérico real (p. ej. 15200), con vista vial 15+200.
+            row.getCell('kmi').numFmt = '0"+"000';
+            row.getCell('kmf').numFmt = '0"+"000';
         });
         ws.views = [{ state: 'frozen', ySplit: 1 }];
         const buffer = await wb.xlsx.writeBuffer();

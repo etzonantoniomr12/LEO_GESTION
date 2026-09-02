@@ -600,15 +600,15 @@
         </div>
 
         <!-- Tabla Metrados -->
-        <main id="met-main-container" class="flex-1 overflow-auto p-6 bg-slate-50 relative flex justify-center">
+        <main id="met-main-container" class="flex-1 min-h-0 overflow-hidden p-6 bg-slate-50 relative flex justify-center">
             <!-- Loader -->
             <div id="met-loading" class="absolute inset-0 bg-slate-50 z-20 flex flex-col items-center justify-center">
                 <div class="loader mb-4"></div>
                 <p class="text-slate-500 font-medium animate-pulse">Sincronizando METRADOS con Google Sheets...</p>
             </div>
 
-            <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col w-full max-w-[1600px] mx-auto">
-                <div class="overflow-x-auto overflow-y-auto w-full max-h-[65vh] custom-table-scroll">
+            <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col flex-1 min-h-0 w-full max-w-[1600px] mx-auto">
+                <div class="overflow-x-auto overflow-y-auto flex-1 min-h-0 w-full custom-table-scroll">
                     <table class="mx-auto text-left border-collapse" style="min-width: 1600px;">
                         <thead class="sticky top-0 z-20 shadow-md bg-slate-50" id="met-tabla-head">
                             <!-- Generado dinámicamente por metrados.js -->
@@ -632,8 +632,8 @@
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
-    <script src="script.js?v=5"></script>
+<script src="script.js?v=6"></script>
     <script src="asistencia.js?v=1"></script>
-    <script src="metrados.js?v=9"></script>
+<script src="metrados.js?v=12"></script>
 </body>
 </html>
