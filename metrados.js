@@ -250,6 +250,19 @@ function configurarEventosMet() {
     const btnB = $m('met-btn-buscar');
     if (btnB) btnB.addEventListener('click', aplicarFiltrosMet);
 
+    const fFechaOp = $m('met-filter-fecha-op');
+    const fFechaVal = $m('met-filter-fecha-val');
+    if (fFechaOp && fFechaVal) {
+        // Todas las fechas no debe conservar una fecha oculta.
+        fFechaOp.addEventListener('change', () => {
+            if (fFechaOp.value === 'ALL') fFechaVal.value = '';
+        });
+        // Elegir una fecha equivale naturalmente a buscar esa fecha exacta.
+        fFechaVal.addEventListener('change', () => {
+            if (fFechaVal.value) fFechaOp.value = 'eq';
+        });
+    }
+
     const fPartida = $m('met-filter-partida');
     if (fPartida) fPartida.addEventListener('keyup', e => { if (e.key === 'Enter') aplicarFiltrosMet(); });
 
