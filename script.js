@@ -529,7 +529,7 @@ async function renderizarTabla() {
                     <button type="button" id="${copyButtonId}" disabled onclick="copiarMiniaturaRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-sm transition-colors disabled:bg-slate-300 disabled:cursor-wait">COPIAR</button>
                     <button type="button" onclick="copiarLinkRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-colors">LINK</button>
                 </div>
-                <button type="button" class="relative w-full h-24 flex items-center justify-center bg-slate-50 hover:bg-slate-100 cursor-pointer" onclick="abrirEnDrive('${fila.driveId}')" title="Abrir foto en Google Drive" id="${containerId}">
+                <button type="button" class="relative w-full h-24 overflow-hidden flex items-center justify-center bg-slate-50 hover:bg-slate-100 cursor-pointer" onclick="abrirEnDrive('${fila.driveId}')" title="Abrir foto en Google Drive" id="${containerId}">
                     <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -556,11 +556,11 @@ async function renderizarTabla() {
             <td class="px-6 py-4 w-[200px] min-w-[200px] max-w-[200px] whitespace-normal break-words border-l border-slate-300">
                 <div class="text-sm text-slate-700 leading-relaxed">${fila.descripcion ? fila.descripcion.replace(/\n/g, '<br>') : '-'}</div>
             </td>
-            <td class="px-4 py-4 w-[150px] min-w-[150px] text-center border-l border-slate-300">
-                <div class="text-slate-500 font-mono text-sm">${fila.utmNorte || '-'} - ${fila.utmEste || '-'}</div>
+            <td class="px-2 py-4 w-[90px] min-w-[90px] text-center border-l border-slate-300">
+                <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.utmNorte || '-'} - ${fila.utmEste || '-'}</div>
             </td>
-            <td class="px-4 py-4 w-[190px] min-w-[190px] text-center border-l border-slate-300">
-                <div class="text-slate-600 text-sm break-all">${fila.nombreFotoVisible || '-'}</div>
+            <td class="px-2 py-4 w-[90px] min-w-[90px] text-center border-l border-slate-300">
+                <div class="texto-vertical mx-auto text-slate-600 text-sm">${fila.nombreFotoVisible || '-'}</div>
             </td>
             <td class="celda-foto border-l border-slate-300 bg-slate-50">
                 ${htmlFoto}
