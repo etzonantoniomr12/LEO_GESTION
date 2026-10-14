@@ -316,7 +316,7 @@
                     </select>
                 </div>
                 <div class="w-40 min-w-[160px]">
-                    <input type="date" id="filter-fecha-val" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm bg-slate-50 hover:bg-white focus:bg-white text-slate-700">
+                    <input type="date" id="filter-fecha-val" disabled class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all shadow-sm bg-slate-50 hover:bg-white focus:bg-white text-slate-700 disabled:text-slate-400 disabled:bg-slate-100 disabled:cursor-not-allowed disabled:hover:bg-slate-100">
                 </div>
             </div>
             
@@ -392,32 +392,20 @@
                                     </svg>
                                 </div>
                             </th>
-                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('utmNorte')">
-                                <div id="sort-pri-utmNorte" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
-                                <div class="texto-vertical mx-auto pb-5">UTM Norte</div>
-                                <div id="sort-btn-utmNorte" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
-                                    <svg id="sort-icon-utmNorte" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                            <th class="px-4 py-4 w-[150px] min-w-[150px] text-center border-l border-slate-200 select-none">
+                                <div>Coordenada</div>
+                            </th>
+                            <th class="px-4 py-4 w-[190px] min-w-[190px] text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('nombreFotoVisible')">
+                                <div id="sort-pri-nombreFotoVisible" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
+                                <div class="pb-3">Nombre de foto</div>
+                                <div id="sort-btn-nombreFotoVisible" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
+                                    <svg id="sort-icon-nombreFotoVisible" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
                                     </svg>
                                 </div>
                             </th>
-                            <th class="px-2 py-4 w-12 text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('utmEste')">
-                                <div id="sort-pri-utmEste" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
-                                <div class="texto-vertical mx-auto pb-5">UTM Este</div>
-                                <div id="sort-btn-utmEste" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
-                                    <svg id="sort-icon-utmEste" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
-                                    </svg>
-                                </div>
-                            </th>
-                            <th class="px-6 py-4 w-[200px] text-center border-l border-slate-200 bg-slate-100/50 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSort('nombreFoto')">
-                                <div id="sort-pri-nombreFoto" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent transition-colors"></div>
-                                <div class="pb-3">Evidencia Fotográfica</div>
-                                <div id="sort-btn-nombreFoto" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
-                                    <svg id="sort-icon-nombreFoto" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
-                                    </svg>
-                                </div>
+                            <th class="px-6 py-4 w-[220px] min-w-[220px] text-center border-l border-slate-200 bg-slate-100/50 select-none">
+                                <div>Evidencia Fotográfica</div>
                             </th>
                         </tr>
                     </thead>
@@ -632,7 +620,7 @@
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
-<script src="script.js?v=6"></script>
+<script src="script.js?v=8"></script>
     <script src="asistencia.js?v=1"></script>
 <script src="metrados.js?v=13"></script>
 </body>

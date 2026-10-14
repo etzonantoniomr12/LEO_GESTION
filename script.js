@@ -153,6 +153,7 @@ function limpiarFiltrosRegistro() {
     dom.fDescripcion.value = '';
     dom.fFechaOp.value = 'ALL';
     dom.fFechaVal.value = '';
+    sincronizarFiltroFecha();
     
     // Resetear ordenamiento multi-criterio y su UI
     criteriosOrdenamiento = [];
@@ -172,13 +173,9 @@ function configurarEventos() {
         if (dom.fUsuario.value !== 'ALL') dom.fGrupo.value = 'ALL';
     });
 
-    // "Todas las fechas" equivale a no tener fecha escrita. Si el usuario
-    // escribe o selecciona una fecha, el criterio natural pasa a ser "Igual a".
+    // La fecha solo puede elegirse después de seleccionar un operador.
     dom.fFechaOp.addEventListener('change', () => {
-        if (dom.fFechaOp.value === 'ALL') dom.fFechaVal.value = '';
-    });
-    dom.fFechaVal.addEventListener('change', () => {
-        if (dom.fFechaVal.value) dom.fFechaOp.value = 'eq';
+        sincronizarFiltroFecha();
     });
     
     // Permitir buscar al presionar "Enter" en la caja de descripción
@@ -205,6 +202,12 @@ function configurarEventos() {
     dom.btnNext.addEventListener('click', () => cambiarPagina(1));
 }
 
+function sincronizarFiltroFecha() {
+    const todasLasFechas = dom.fFechaOp.value === 'ALL';
+    dom.fFechaVal.disabled = todasLasFechas;
+    if (todasLasFechas) dom.fFechaVal.value = '';
+}
+
 // ==========================================
 // CARGA Y PARSEO DE DATOS
 // ==========================================
@@ -227,6 +230,7 @@ function cargarDatos() {
             if(sessionStorage.getItem('fDescripcion')) dom.fDescripcion.value = sessionStorage.getItem('fDescripcion');
             if(sessionStorage.getItem('fFechaOp')) dom.fFechaOp.value = sessionStorage.getItem('fFechaOp');
             if(sessionStorage.getItem('fFechaVal')) dom.fFechaVal.value = sessionStorage.getItem('fFechaVal');
+            sincronizarFiltroFecha();
 
             aplicarFiltros();
             
@@ -275,7 +279,8 @@ function procesarDatos(raw) {
             utmNorte: valor('UTM_NORTE'),
             utmEste: valor('UTM_ESTE'),
             driveId: valor('DRIVE_FILE_ID'),
-            nombreFoto: valor('NOMBRE_FOTO')
+            nombreFoto: valor('NOMBRE_FOTO'),
+            nombreFotoVisible: quitarExtensionFoto(valor('NOMBRE_FOTO'))
         };
     });
 }
@@ -316,6 +321,10 @@ function extraerClaveFoto(nombreFoto) {
     if (match) return match[1]; // "20260626_143022" → comparable directamente
     // Fallback: usar el nombre completo sin extensión
     return sinExt;
+}
+
+function quitarExtensionFoto(nombreFoto) {
+    return String(nombreFoto || '').replace(/\.[^.]+$/, '');
 }
 
 // ==========================================
@@ -422,7 +431,7 @@ function toggleSort(columna) {
 }
 
 function renderSortUI() {
-    const columnasPosibles = ['grupo', 'usuario', 'fecha', 'descripcion', 'utmNorte', 'utmEste', 'nombreFoto'];
+    const columnasPosibles = ['grupo', 'usuario', 'fecha', 'descripcion', 'nombreFotoVisible'];
     
     columnasPosibles.forEach(col => {
         const circuloPri = document.getElementById(`sort-pri-${col}`);
@@ -512,14 +521,20 @@ async function renderizarTabla() {
         if (fila.driveId) {
             // El índice evita IDs HTML duplicados si una foto se repite.
             const containerId = `foto-container-${globalIndex}-${fila.driveId}`;
+            const copyButtonId = `foto-copy-${globalIndex}-${fila.driveId}`;
             contenedoresFotos.push({ id: fila.driveId, containerId });
             htmlFoto = `
-            <div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="${containerId}">
-                <span class="nombre-foto-oculto">${fila.nombreFoto || ''}</span>
-                <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+            <div class="w-full bg-slate-50">
+                <div class="grid grid-cols-2 gap-2 p-2 border-b border-slate-200">
+                    <button type="button" id="${copyButtonId}" disabled onclick="copiarMiniaturaRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-sm transition-colors disabled:bg-slate-300 disabled:cursor-wait">COPIAR</button>
+                    <button type="button" onclick="copiarLinkRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-colors">LINK</button>
+                </div>
+                <button type="button" class="relative w-full h-24 flex items-center justify-center bg-slate-50 hover:bg-slate-100 cursor-pointer" onclick="abrirEnDrive('${fila.driveId}')" title="Abrir foto en Google Drive" id="${containerId}">
+                    <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
             </div>`;
         } else {
             htmlFoto = `<span class="text-slate-400 italic text-xs">Sin foto</span>`;
@@ -541,13 +556,13 @@ async function renderizarTabla() {
             <td class="px-6 py-4 w-[200px] min-w-[200px] max-w-[200px] whitespace-normal break-words border-l border-slate-300">
                 <div class="text-sm text-slate-700 leading-relaxed">${fila.descripcion ? fila.descripcion.replace(/\n/g, '<br>') : '-'}</div>
             </td>
-            <td class="px-2 py-4 text-center border-l border-slate-300">
-                <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.utmNorte || '-'}</div>
+            <td class="px-4 py-4 w-[150px] min-w-[150px] text-center border-l border-slate-300">
+                <div class="text-slate-500 font-mono text-sm">${fila.utmNorte || '-'} - ${fila.utmEste || '-'}</div>
             </td>
-            <td class="px-2 py-4 text-center border-l border-slate-300">
-                <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.utmEste || '-'}</div>
+            <td class="px-4 py-4 w-[190px] min-w-[190px] text-center border-l border-slate-300">
+                <div class="text-slate-600 text-sm break-all">${fila.nombreFotoVisible || '-'}</div>
             </td>
-            <td class="celda-foto border-l border-slate-300 bg-slate-50 hover:bg-slate-100 cursor-pointer" onclick="abrirEnDrive('${fila.driveId}')">
+            <td class="celda-foto border-l border-slate-300 bg-slate-50">
                 ${htmlFoto}
             </td>
         `;
@@ -561,7 +576,9 @@ async function renderizarTabla() {
         contenedoresFotos.forEach(({ id, containerId }) => {
             const container = document.getElementById(containerId);
             if (container && fuente[id]) {
-                container.innerHTML = `<span class="nombre-foto-oculto">Oculto</span><img src="${fuente[id]}" loading="lazy" class="foto-miniatura">`;
+                container.innerHTML = `<img src="${fuente[id]}" loading="lazy" class="foto-miniatura" alt="Evidencia fotográfica">`;
+                const copyButton = container.parentElement && container.parentElement.querySelector('button[id^="foto-copy-"]');
+                if (copyButton) copyButton.disabled = false;
             }
         });
     };
@@ -609,6 +626,57 @@ function abrirEnDrive(id) {
     
     // Abrimos siempre la vista nativa de Google Drive en una nueva pestaña
     window.open(`https://drive.google.com/file/d/${id}/view`, '_blank');
+}
+
+function convertirMiniaturaAPng(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const imagen = new Image();
+        imagen.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = imagen.naturalWidth;
+            canvas.height = imagen.naturalHeight;
+            canvas.getContext('2d').drawImage(imagen, 0, 0);
+            canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('No se pudo convertir la imagen.')), 'image/png');
+        };
+        imagen.onerror = () => reject(new Error('No se pudo leer la miniatura.'));
+        imagen.src = dataUrl;
+    });
+}
+
+function mostrarResultadoCopia(boton, texto, esError = false) {
+    if (!boton) return;
+    const textoOriginal = boton.dataset.textoOriginal || boton.textContent;
+    boton.dataset.textoOriginal = textoOriginal;
+    boton.textContent = texto;
+    boton.classList.toggle('bg-red-600', esError);
+    setTimeout(() => {
+        boton.textContent = textoOriginal;
+        boton.classList.remove('bg-red-600');
+    }, 1500);
+}
+
+function copiarMiniaturaRegistro(id, boton) {
+    const dataUrl = CACHE_MINIATURAS_REG.get(id);
+    if (!dataUrl || !navigator.clipboard || typeof ClipboardItem === 'undefined') {
+        mostrarResultadoCopia(boton, 'NO DISPONIBLE', true);
+        return;
+    }
+
+    const item = new ClipboardItem({ 'image/png': convertirMiniaturaAPng(dataUrl) });
+    navigator.clipboard.write([item])
+        .then(() => mostrarResultadoCopia(boton, '¡COPIADA!'))
+        .catch(() => mostrarResultadoCopia(boton, 'ERROR', true));
+}
+
+function copiarLinkRegistro(id, boton) {
+    const enlace = `https://drive.google.com/file/d/${id}/view`;
+    if (!navigator.clipboard) {
+        mostrarResultadoCopia(boton, 'NO DISPONIBLE', true);
+        return;
+    }
+    navigator.clipboard.writeText(enlace)
+        .then(() => mostrarResultadoCopia(boton, '¡COPIADO!'))
+        .catch(() => mostrarResultadoCopia(boton, 'ERROR', true));
 }
 
 // ==========================================
