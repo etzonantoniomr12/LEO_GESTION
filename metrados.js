@@ -23,7 +23,7 @@ let datosMetrados       = [];
 let datosMetradosExportacion = [];
 let filtradosMetrados   = [];
 let paginaMetrados      = 1;
-const ITEMS_POR_PAG_MET = 25;
+const ITEMS_POR_PAG_MET = 15;
 let criteriosMet        = [];
 let metradosCargados    = false;
 // Conserva miniaturas recientes para evitar volver a solicitarlas al paginar,

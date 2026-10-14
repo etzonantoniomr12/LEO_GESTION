@@ -88,7 +88,7 @@ function cambiarVista(vista, esManual = true) {
 let datosGlobales = [];
 let datosFiltrados = [];
 let paginaActual = 1;
-const itemsPorPagina = 25;
+const itemsPorPagina = 15;
 let criteriosOrdenamiento = []; // NUEVO ESTADO MULTI-SORT
 
 // IMPORTANTE: URL del Web App de Google Apps Script para generar ZIPs
