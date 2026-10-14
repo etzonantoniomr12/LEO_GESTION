@@ -522,19 +522,19 @@ async function renderizarTabla() {
             // El índice evita IDs HTML duplicados si una foto se repite.
             const containerId = `foto-container-${globalIndex}-${fila.driveId}`;
             const copyButtonId = `foto-copy-${globalIndex}-${fila.driveId}`;
-            contenedoresFotos.push({ id: fila.driveId, containerId });
+            contenedoresFotos.push({ id: fila.driveId, containerId, copyButtonId });
             htmlFoto = `
-            <div class="w-full bg-slate-50">
-                <div class="grid grid-cols-2 gap-2 p-2 border-b border-slate-200">
-                    <button type="button" id="${copyButtonId}" disabled onclick="copiarMiniaturaRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-sm transition-colors disabled:bg-slate-300 disabled:cursor-wait">COPIAR</button>
-                    <button type="button" onclick="copiarLinkRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-colors">LINK</button>
+            <div class="relative w-full h-full min-h-[180px] overflow-hidden bg-slate-100">
+                <div class="absolute top-0 left-0 right-0 z-10 grid grid-cols-2 gap-2 p-2">
+                    <button type="button" id="${copyButtonId}" disabled onclick="copiarMiniaturaRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-white/75 hover:bg-white/90 text-blue-950 text-xs font-bold border border-white/80 shadow-md backdrop-blur-sm transition-colors disabled:bg-white/50 disabled:text-blue-950/50 disabled:cursor-wait">COPIAR</button>
+                    <button type="button" onclick="copiarLinkRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-white/75 hover:bg-white/90 text-blue-950 text-xs font-bold border border-white/80 shadow-md backdrop-blur-sm transition-colors">LINK</button>
                 </div>
-                <button type="button" class="relative w-full h-24 overflow-hidden flex items-center justify-center bg-slate-50 hover:bg-slate-100 cursor-pointer" onclick="abrirEnDrive('${fila.driveId}')" title="Abrir foto en Google Drive" id="${containerId}">
+                <div class="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-slate-100" id="${containerId}">
                     <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                </button>
+                </div>
             </div>`;
         } else {
             htmlFoto = `<span class="text-slate-400 italic text-xs">Sin foto</span>`;
@@ -553,13 +553,13 @@ async function renderizarTabla() {
             <td class="px-2 py-4 text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.fecha || '-'}</div>
             </td>
-            <td class="px-6 py-4 w-[200px] min-w-[200px] max-w-[200px] whitespace-normal break-words border-l border-slate-300">
+            <td class="px-6 py-4 w-[260px] min-w-[260px] max-w-[260px] whitespace-normal break-words border-l border-slate-300">
                 <div class="text-sm text-slate-700 leading-relaxed">${fila.descripcion ? fila.descripcion.replace(/\n/g, '<br>') : '-'}</div>
             </td>
-            <td class="px-2 py-4 w-[90px] min-w-[90px] text-center border-l border-slate-300">
+            <td class="px-2 py-4 w-12 min-w-[48px] max-w-[48px] text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.utmNorte || '-'} - ${fila.utmEste || '-'}</div>
             </td>
-            <td class="px-2 py-4 w-[90px] min-w-[90px] text-center border-l border-slate-300">
+            <td class="px-2 py-4 w-12 min-w-[48px] max-w-[48px] text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto text-slate-600 text-sm">${fila.nombreFotoVisible || '-'}</div>
             </td>
             <td class="celda-foto border-l border-slate-300 bg-slate-50">
@@ -573,11 +573,11 @@ async function renderizarTabla() {
     // SEGUNDA FASE: Cargar fotos en Lote (Batching) vía Apps Script
     const idsBatch = [...new Set(contenedoresFotos.map(({ id }) => id))];
     const pintarMiniaturas = (fuente) => {
-        contenedoresFotos.forEach(({ id, containerId }) => {
+        contenedoresFotos.forEach(({ id, containerId, copyButtonId }) => {
             const container = document.getElementById(containerId);
             if (container && fuente[id]) {
                 container.innerHTML = `<img src="${fuente[id]}" loading="lazy" class="foto-miniatura" alt="Evidencia fotográfica">`;
-                const copyButton = container.parentElement && container.parentElement.querySelector('button[id^="foto-copy-"]');
+                const copyButton = document.getElementById(copyButtonId);
                 if (copyButton) copyButton.disabled = false;
             }
         });
