@@ -215,9 +215,15 @@ function cargarDatos() {
     Papa.parse(CSV_URL, {
         download: true,
         header: true,
-        skipEmptyLines: true,
+        // Se conservan temporalmente las filas vacías para mantener el número
+        // físico de cada fila de Google Sheets; luego se excluyen de la tabla.
+        skipEmptyLines: false,
         complete: (results) => {
-            datosGlobales = procesarDatos(results.data);
+            datosGlobales = procesarDatos(results.data).filter(d =>
+                [d.grupo, d.usuario, d.fecha, d.descripcion, d.zona,
+                 d.utmNorte, d.utmEste, d.driveId, d.nombreFoto]
+                    .some(valor => String(valor || '').trim() !== '')
+            );
             datosFiltrados = [...datosGlobales];
             
             poblarSelectores();
@@ -244,7 +250,7 @@ function cargarDatos() {
 }
 
 function procesarDatos(raw) {
-    return raw.map(fila => {
+    return raw.map((fila, indiceFila) => {
         // Tolera BOM, espacios o cambios de mayúsculas en encabezados.
         const normalizada = {};
         Object.keys(fila || {}).forEach(k => {
@@ -270,6 +276,8 @@ function procesarDatos(raw) {
         }
 
         return {
+            // La fila 1 contiene los encabezados; el primer registro es la 2.
+            filaSheet: indiceFila + 2,
             grupo: valor('GRUPO'),
             usuario: valor('USUARIO').replace(/\s+/g, ' ').toUpperCase(),
             fecha: valor('FECHA'),
@@ -541,8 +549,9 @@ async function renderizarTabla() {
         }
 
         tr.innerHTML = `
-            <td class="px-2 py-4 w-6 text-center">
+            <td class="px-2 py-4 w-12 min-w-[48px] text-center">
                 <div class="font-bold text-slate-500">${globalIndex}</div>
+                <div class="mt-1 text-[9px] leading-tight font-semibold text-sky-700" title="Número de fila en Google Sheets">F. ${fila.filaSheet}</div>
             </td>
             <td class="px-2 py-4 text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto font-medium text-slate-800">${fila.grupo || '-'}</div>
@@ -553,7 +562,7 @@ async function renderizarTabla() {
             <td class="px-2 py-4 text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.fecha || '-'}</div>
             </td>
-            <td class="px-6 py-4 w-[260px] min-w-[260px] max-w-[260px] whitespace-normal break-words border-l border-slate-300">
+            <td class="px-6 py-4 w-[230px] min-w-[230px] max-w-[230px] whitespace-normal break-words border-l border-slate-300">
                 <div class="text-sm text-slate-700 leading-relaxed">${fila.descripcion ? fila.descripcion.replace(/\n/g, '<br>') : '-'}</div>
             </td>
             <td class="px-2 py-4 w-12 min-w-[48px] max-w-[48px] text-center border-l border-slate-300">
