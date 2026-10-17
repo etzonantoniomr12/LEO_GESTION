@@ -4,6 +4,7 @@
 const SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
 // Registro Fotos siempre debe leer REPORTE_FOTOS, no la pestaña predeterminada.
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=REPORTE_FOTOS`;
+const FILAS_ENCABEZADO_REPORTE_FOTOS = 1;
 
 // Navegación Sidebar
 let isSidebarOpen = false;
@@ -276,8 +277,8 @@ function procesarDatos(raw) {
         }
 
         return {
-            // La fila 1 contiene los encabezados; el primer registro es la 2.
-            filaSheet: indiceFila + 2,
+            // Posición física en Sheets: índice CSV + encabezado + base 1.
+            filaSheet: indiceFila + FILAS_ENCABEZADO_REPORTE_FOTOS + 1,
             grupo: valor('GRUPO'),
             usuario: valor('USUARIO').replace(/\s+/g, ' ').toUpperCase(),
             fecha: valor('FECHA'),
@@ -537,7 +538,7 @@ async function renderizarTabla() {
                     <button type="button" id="${copyButtonId}" disabled onclick="copiarMiniaturaRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-white/75 hover:bg-white/90 text-blue-950 text-xs font-bold border border-white/80 shadow-md backdrop-blur-sm transition-colors disabled:bg-white/50 disabled:text-blue-950/50 disabled:cursor-wait">COPIAR</button>
                     <button type="button" onclick="copiarLinkRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-white/75 hover:bg-white/90 text-blue-950 text-xs font-bold border border-white/80 shadow-md backdrop-blur-sm transition-colors">LINK</button>
                 </div>
-                <div class="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-slate-100" id="${containerId}">
+                <div class="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-slate-100 cursor-pointer" id="${containerId}" role="button" tabindex="0" title="Abrir fotografía en Google Drive" onclick="abrirEnDrive('${fila.driveId}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); abrirEnDrive('${fila.driveId}'); }">
                     <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -549,9 +550,9 @@ async function renderizarTabla() {
         }
 
         tr.innerHTML = `
-            <td class="px-2 py-4 w-12 min-w-[48px] text-center">
+            <td class="px-1 py-4 w-12 min-w-[48px] text-center">
                 <div class="font-bold text-slate-500">${globalIndex}</div>
-                <div class="mt-1 text-[9px] leading-tight font-semibold text-sky-700" title="Número de fila en Google Sheets">F. ${fila.filaSheet}</div>
+                <div class="mt-1 text-[11px] leading-tight tracking-tight whitespace-nowrap font-bold text-sky-700" title="Fila ${fila.filaSheet} de Google Sheets">F.${fila.filaSheet}</div>
             </td>
             <td class="px-2 py-4 text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto font-medium text-slate-800">${fila.grupo || '-'}</div>
@@ -563,7 +564,7 @@ async function renderizarTabla() {
                 <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.fecha || '-'}</div>
             </td>
             <td class="px-6 py-4 w-[230px] min-w-[230px] max-w-[230px] whitespace-normal break-words border-l border-slate-300">
-                <div class="text-sm text-slate-700 leading-relaxed">${fila.descripcion ? fila.descripcion.replace(/\n/g, '<br>') : '-'}</div>
+                <div class="text-sm text-slate-700 leading-tight">${fila.descripcion ? fila.descripcion.replace(/\n/g, '<br>') : '-'}</div>
             </td>
             <td class="px-2 py-4 w-12 min-w-[48px] max-w-[48px] text-center border-l border-slate-300">
                 <div class="texto-vertical mx-auto text-slate-500 font-mono text-sm">${fila.utmNorte || '-'} - ${fila.utmEste || '-'}</div>
