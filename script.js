@@ -278,7 +278,7 @@ function procesarDatos(raw) {
 
         return {
             // Posición física en Sheets: índice CSV + encabezado + base 1.
-            filaSheet: indiceFila + FILAS_ENCABEZADO_REPORTE_FOTOS + 1,
+            filaSheet: indiceFila + FILAS_ENCABEZADO_REPORTE_FOTOS + 2,
             grupo: valor('GRUPO'),
             usuario: valor('USUARIO').replace(/\s+/g, ' ').toUpperCase(),
             fecha: valor('FECHA'),

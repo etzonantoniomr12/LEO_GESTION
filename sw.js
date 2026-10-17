@@ -1,7 +1,7 @@
-const CACHE_NAME = 'reportes-vial-v19';
+const CACHE_NAME = 'reportes-vial-v20';
 const urlsToCache = [
   './index.html',
-    './script.js?v=15',
+    './script.js?v=16',
     './metrados.js?v=14',
   './manifest.json',
   'https://cdn.tailwindcss.com',
