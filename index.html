@@ -135,7 +135,7 @@
         #met-map { width: 100%; height: 100%; min-height: 460px; background: #dbe5ee; }
         .met-tramo-tab.active { background: #0b132b; color: white; border-color: #0b132b; box-shadow: 0 5px 14px rgba(11,19,43,.22); }
         .met-view-tab.active { color: #0b132b; border-color: #0ea5e9; background: #f0f9ff; }
-        .met-map-card { background: rgba(255,255,255,.94); backdrop-filter: blur(10px); box-shadow: 0 12px 30px rgba(15,23,42,.18); }
+        .met-map-card { max-height: calc(100% - 2rem); overflow-x: hidden !important; overflow-y: auto !important; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); box-shadow: 0 12px 30px rgba(15,23,42,.18); }
         .met-month-chip input:checked + span { border-color: var(--month-color); background: color-mix(in srgb, var(--month-color) 12%, white); color: #0f172a; }
         .met-month-dot { background: var(--month-color); }
         .leaflet-popup-content-wrapper { border-radius: 12px; }
@@ -164,6 +164,10 @@
         .met-map-status-list { display: grid; gap: 4px; max-height: 170px; overflow-y: auto; }
         .met-status-row { display: flex; justify-content: space-between; gap: 10px; padding-bottom: 3px; border-bottom: 1px solid #e2e8f0; }
         .met-status-row:last-child { border-bottom: 0; }
+        .met-week-buttons { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+        .met-week-btn { min-width: 0; padding: 5px 2px; border: 1px solid #cbd5e1; border-radius: 7px; background: white; color: #64748b; font-size: 12px; font-weight: 700; transition: .15s; }
+        .met-week-btn.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; box-shadow: inset 0 0 0 1px #2563eb; }
+        .met-week-btn:disabled { background: #f1f5f9; color: #cbd5e1; border-color: #e2e8f0; cursor: not-allowed; box-shadow: none; }
         .met-line-chart { position: relative; height: 285px; min-width: 680px; border-right: 1px solid #64748b; border-bottom: 1px solid #94a3b8; }
         .met-line-plot { position: absolute; inset: 16px 48px 36px 8px; }
         .met-line-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
@@ -621,7 +625,19 @@
                     </div>
                     <div class="p-4 space-y-3">
                         <div id="met-map-months" class="space-y-3 max-h-56 overflow-y-auto pr-1"></div>
+                        <div class="pt-2 border-t border-slate-200">
+                            <p class="text-[10px] font-extrabold text-slate-700 uppercase mb-1.5">Semanas</p>
+                            <div id="met-map-weeks" class="met-week-buttons">
+                                <button type="button" class="met-week-btn" data-week="1">SEM 1</button>
+                                <button type="button" class="met-week-btn" data-week="2">SEM 2</button>
+                                <button type="button" class="met-week-btn" data-week="3">SEM 3</button>
+                                <button type="button" class="met-week-btn" data-week="4">SEM 4</button>
+                                <button type="button" class="met-week-btn" data-week="5">SEM 5</button>
+                                <button type="button" class="met-week-btn active" data-week="TODAS">TODAS</button>
+                            </div>
+                        </div>
                         <div id="met-map-status" class="rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 text-[11px] text-slate-600">Preparando mapa...</div>
+                        <div id="met-map-week-status" class="hidden rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 text-[11px] text-slate-600"></div>
                     </div>
                 </div>
 
@@ -705,8 +721,8 @@
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
-<script src="script.js?v=17"></script>
+<script src="script.js?v=18"></script>
     <script src="asistencia.js?v=2"></script>
-<script src="metrados.js?v=24"></script>
+<script src="metrados.js?v=27"></script>
 </body>
 </html>

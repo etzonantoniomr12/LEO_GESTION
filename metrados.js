@@ -14,24 +14,9 @@ const TRAMOS_MET = ['TRAMO I', 'TRAMO II', 'TRAMO III', 'TRAMO IV', 'TRAMO V', '
 const COLORES_MESES_MET = ['#2563eb', '#eab308', '#dc2626', '#16a34a', '#9333ea', '#ea580c'];
 const MESES_NOMBRE_MET = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-// Estas son las únicas columnas que se muestran en la pantalla.  Las columnas
-// DRIVE_ID_*, NOMBRE_FOTO_* y #* se conservan solo como datos auxiliares para
-// poder abrir/cargar las fotos, nunca se presentan como columnas de la tabla.
-const COLUMNAS_VISIBLES_MET = [
-    'ITEM', 'FECHA', 'ACTIVIDAD', 'PARTIDA', 'KM INICIAL', 'KM FINAL',
-    'LADO', 'METRADO', 'UNIDAD', 'TRAMO', 'FOTO_ANTES', 'FOTO_DURANTE',
-    'FOTO_DESPUES'
-];
-
 // --- Estado global del módulo ---
 let datosMetrados       = [];
-// Copia íntegra de A:L en el orden físico recibido de la hoja. Esta colección
-// es exclusiva para Excel: nunca se ordena ni se limita por filtros visuales.
-let datosMetradosExportacion = [];
 let filtradosMetrados   = [];
-let paginaMetrados      = 1;
-const ITEMS_POR_PAG_MET = 15;
-let criteriosMet        = [];
 let metradosCargados    = false;
 let datosMapaMetCargados = false;
 let cargaMapaMetEnCurso = null;
@@ -44,22 +29,20 @@ let ejesPorTramoMet = new Map();
 let hitosPorTramoMet = new Map();
 let rangosTramoMet = [];
 let actividadesConfigMet = new Map();
+let ordenActividadesMet = [];
 let coloresMesMet = new Map();
 let ordenSeleccionMesesMet = [];
 let periodosDisponiblesMet = [];
 let filtroGeneralMet = { actividad: 'ALL', desde: '', hasta: '' };
 let periodoDetalleMet = '';
+let semanaActivaMapaMet = 'TODAS';
+let mesSemanaMapaMet = '';
 // Subbase común creada por CARGAR. Tabla conserva todas las filas; mapa y
 // análisis consumen exclusivamente su derivación cartográfica válida.
 let subBaseFiltradaMet = [];
 let subBaseValidaMet = [];
 let subBaseInvalidaMet = [];
 let tramoSubBaseMet = new Map();
-// Conserva miniaturas recientes para evitar volver a solicitarlas al paginar,
-// ordenar o aplicar filtros. El límite protege la memoria del navegador.
-const CACHE_MINIATURAS_MET = new Map();
-const MAX_CACHE_MINIATURAS_MET = 150;
-const TAMANO_LOTE_MINIATURAS_MET = 20;
 
 // ==========================================
 // SELECTORES DOM (acceso lazy)
@@ -95,12 +78,7 @@ function cargarDatosMetrados() {
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
-            const filasLeidas = procesarDatosMetrados(results.data);
-            // La tabla solo muestra registros con actividad, pero el Excel debe
-            // conservar cualquier fila que tenga información en A:L y respetar
-            // exactamente la posición de origen.
-            datosMetradosExportacion = filasLeidas.filter(_tieneDatosExportablesMet);
-            datosMetrados     = datosMetradosExportacion.filter(d => d.actividad !== '');
+            datosMetrados = procesarDatosMetrados(results.data).filter(d => d.actividad !== '');
             filtradosMetrados = [...datosMetrados];
             metradosCargados  = true;
 
@@ -157,31 +135,15 @@ function procesarDatosMetrados(raw) {
             metrado:           valor('METRADO'),
             unidad:            valor('UNIDAD'),
             tramo:             valor('TRAMO'),
-            // Fotos (Drive IDs para miniaturas)
+            // Referencias de fotos usadas únicamente al exportar METRADOS.
             driveIdAntes:      idAntes || _extraerDriveIdMet(fotoAntes),
             driveIdDurante:    idDurante || _extraerDriveIdMet(fotoDurante),
             driveIdDespues:    idDespues || _extraerDriveIdMet(fotoDespues),
             fotoAntes,
             fotoDurante,
-            fotoDespues,
-            // Nombres de archivo (para ordenamiento cronológico)
-            nombreFotoAntes:   valor('NOMBRE_FOTO_ANTES'),
-            nombreFotoDurante: valor('NOMBRE_FOTO_DURANTE'),
-            nombreFotoDespues: valor('NOMBRE_FOTO_DESPUES'),
-            // Conteos
-            cntAntes:   parseInt(valor('#ANTES')   || '0', 10) || (fotoAntes ? 1 : 0),
-            cntDurante: parseInt(valor('#DURANTE') || '0', 10) || (fotoDurante ? 1 : 0),
-            cntDespues: parseInt(valor('#DESPUES') || '0', 10) || (fotoDespues ? 1 : 0),
+            fotoDespues
         };
     });
-}
-
-function _tieneDatosExportablesMet(d) {
-    return [
-        d.fecha, d.actividad, d.partida, d.kmInicial, d.kmFinal, d.lado,
-        d.metrado, d.unidad, d.tramo, d.fotoAntes, d.fotoDurante, d.fotoDespues,
-        d.driveIdAntes, d.driveIdDurante, d.driveIdDespues
-    ].some(valor => String(valor || '').trim() !== '');
 }
 
 function _leerRegistrosParaExcelMet() {
@@ -234,14 +196,10 @@ function _refFotoMet(d, tipo) {
     return id || url || '';
 }
 
-function _enlaceFotoMet(ref) {
-    if (!ref) return '';
-    return /^https?:\/\//i.test(ref) ? ref : `https://drive.google.com/file/d/${ref}/view`;
-}
-
 function _enlaceDescargaFotoMet(ref) {
     const id = _extraerDriveIdMet(ref);
-    return id ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}` : _enlaceFotoMet(ref);
+    if (id) return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`;
+    return /^https?:\/\//i.test(ref) ? ref : '';
 }
 
 function _numeroKmMet(valor) {
@@ -318,6 +276,7 @@ async function cargarDatosGeograficosMet() {
         ejesPorTramoMet = new Map(TRAMOS_MET.map(nombre => [nombre, []]));
         hitosPorTramoMet = new Map(TRAMOS_MET.map(nombre => [nombre, []]));
         actividadesConfigMet = new Map();
+        ordenActividadesMet = [];
 
         filasEje.forEach(filaOriginal => {
             const fila = _filaNormalizadaMapaMet(filaOriginal);
@@ -354,6 +313,7 @@ async function cargarDatosGeograficosMet() {
             return { nombre, min: hitos[0].hito, max: hitos[hitos.length - 1].hito };
         });
 
+        const partidasRegistradas = new Set();
         filasActividades.forEach(filaOriginal => {
             const fila = _filaNormalizadaMapaMet(filaOriginal);
             const partida = String(fila.PARTIDA || '').trim();
@@ -366,8 +326,18 @@ async function cargarDatosGeograficosMet() {
                 const valorMeta = _numeroFlexibleMapaMet(fila[`TRAMO ${indice + 1}`]);
                 metas[nombreTramo] = Number.isFinite(valorMeta) ? valorMeta : 0;
             });
-            if (partida && (tipo === 'P' || tipo === 'L') && Number.isFinite(limite) && limite > 0) {
-                actividadesConfigMet.set(_claveTextoMapaMet(partida), { partida, tipo, limite, metas });
+            const clavePartida = _claveTextoMapaMet(partida);
+            if (partida && !partidasRegistradas.has(clavePartida)) {
+                partidasRegistradas.add(clavePartida);
+                ordenActividadesMet.push(partida);
+            }
+            if (partida && (tipo === 'P' || tipo === 'L')) {
+                actividadesConfigMet.set(clavePartida, {
+                    partida,
+                    tipo,
+                    limite: Number.isFinite(limite) && limite > 0 ? limite : 0,
+                    metas
+                });
             }
         });
         if (!actividadesConfigMet.size) throw new Error('La hoja ACTIVIDADES no contiene configuraciones válidas.');
@@ -428,10 +398,16 @@ function _inicializarControlGeneralMet() {
     periodosDisponiblesMet = [...new Set(datosMetrados.map(d => _mesClaveMapaMet(d.fecha)).filter(mes => mes !== 'SIN FECHA'))].sort();
     const selectorActividad = $m('met-control-actividad');
     if (selectorActividad) {
-        const partidas = [...new Set(datosMetrados.map(d => d.partida).filter(p => actividadesConfigMet.has(_claveTextoMapaMet(p))))]
-            .sort((a, b) => a.localeCompare(b, 'es'));
-        selectorActividad.innerHTML = '<option value="ALL">Todas las actividades</option>' + partidas
-            .map(p => `<option value="${_escaparHtmlMet(p)}">${_escaparHtmlMet(p)}</option>`).join('');
+        const cortes = new Set([12, 22, 25, 28, 31, 34, 37, 41, 50]);
+        const opciones = [];
+        ordenActividadesMet.forEach((partida, indice) => {
+            opciones.push(`<option value="${_escaparHtmlMet(partida)}">${_escaparHtmlMet(partida)}</option>`);
+            const posicion = indice + 1;
+            if (cortes.has(posicion) && posicion < ordenActividadesMet.length) {
+                opciones.push(`<option disabled class="font-bold text-slate-400">──────────────</option>`);
+            }
+        });
+        selectorActividad.innerHTML = '<option value="ALL">Todas las actividades</option>' + opciones.join('');
     }
     const anios = [...new Set(periodosDisponiblesMet.map(periodo => periodo.slice(0, 4)))];
     ['met-control-anio-inicio', 'met-control-anio-final'].forEach(id => {
@@ -548,6 +524,7 @@ function _reconstruirLeyendaMapaMet() {
             </label>`;
         }).join('')}</div>
     </div>`).join('');
+    _actualizarControlSemanasMapaMet(true);
 }
 
 function _cambiarMesVisibleMet(input) {
@@ -570,11 +547,56 @@ function _cambiarMesVisibleMet(input) {
         const etiqueta = entrada.closest('label');
         if (etiqueta) etiqueta.style.setProperty('--month-color', entrada.checked ? (_colorMesMapaMet(entrada.value)) : '#94a3b8');
     });
+    _actualizarControlSemanasMapaMet(false);
     renderizarMapaMet(false);
 }
 
 function _mesesSeleccionadosMapaMet() {
     return new Set([...document.querySelectorAll('#met-map-months input[type="checkbox"]:checked')].map(input => input.value));
+}
+
+function _cantidadSemanasMapaMet(periodo) {
+    const [anio, mes] = periodo.split('-').map(Number);
+    const diasMes = new Date(anio, mes, 0).getDate();
+    const diaInicio = new Date(anio, mes - 1, 1).getDay(); // 0 domingo, 1 lunes...
+    const diasPrimera = diaInicio === 0 ? 1 : 8 - diaInicio;
+    return Math.min(5, 1 + Math.ceil(Math.max(0, diasMes - diasPrimera) / 7));
+}
+
+function _semanaFechaMapaMet(fecha, periodo) {
+    const partes = _fechaPartesMet(fecha);
+    if (!partes) return null;
+    const clave = `${partes.anio}-${String(partes.mes).padStart(2, '0')}`;
+    if (clave !== periodo) return null;
+    const diaInicio = new Date(partes.anio, partes.mes - 1, 1).getDay();
+    const diasPrimera = diaInicio === 0 ? 1 : 8 - diaInicio;
+    if (partes.dia <= diasPrimera) return 1;
+    return Math.min(5, 2 + Math.floor((partes.dia - diasPrimera - 1) / 7));
+}
+
+function _actualizarControlSemanasMapaMet(forzarTodas = false) {
+    const meses = [..._mesesSeleccionadosMapaMet()];
+    const mesUnico = meses.length === 1 ? meses[0] : '';
+    if (forzarTodas || !mesUnico || mesSemanaMapaMet !== mesUnico) semanaActivaMapaMet = 'TODAS';
+    mesSemanaMapaMet = mesUnico;
+    const cantidad = mesUnico ? _cantidadSemanasMapaMet(mesUnico) : 0;
+    document.querySelectorAll('#met-map-weeks .met-week-btn').forEach(boton => {
+        const valor = boton.dataset.week;
+        const esTodas = valor === 'TODAS';
+        const numero = Number(valor);
+        boton.disabled = !esTodas && (!mesUnico || numero > cantidad);
+        boton.classList.toggle('active', valor === String(semanaActivaMapaMet));
+    });
+    const resumen = $m('met-map-week-status');
+    resumen?.classList.toggle('hidden', !mesUnico);
+}
+
+function _seleccionarSemanaMapaMet(valor) {
+    const meses = [..._mesesSeleccionadosMapaMet()];
+    if (valor !== 'TODAS' && meses.length !== 1) return;
+    semanaActivaMapaMet = valor;
+    _actualizarControlSemanasMapaMet(false);
+    renderizarMapaMet(false);
 }
 
 function _tramoPorKmInicialMapaMet(km) {
@@ -658,7 +680,12 @@ function _prepararRegistroMapaMet(d) {
 
 function _registrosVisiblesMapaMet() {
     const meses = _mesesSeleccionadosMapaMet();
-    return subBaseValidaMet.filter(registro => registro.tramo === tramoActivoMet && meses.has(registro.mes));
+    const mesUnico = meses.size === 1 ? [...meses][0] : '';
+    return subBaseValidaMet.filter(registro => {
+        if (registro.tramo !== tramoActivoMet || !meses.has(registro.mes)) return false;
+        if (!mesUnico || semanaActivaMapaMet === 'TODAS') return true;
+        return _semanaFechaMapaMet(registro.original.fecha, mesUnico) === Number(semanaActivaMapaMet);
+    });
 }
 
 function _numerarRegistrosMapaMet(registros) {
@@ -684,6 +711,24 @@ function _actualizarResumenLeyendaMet() {
     }).join('');
     const invalidos = subBaseInvalidaMet.filter(registro => registro.tramo === tramoActivoMet).length;
     estado.innerHTML = `<div class="font-extrabold text-slate-700 mb-1">${tramoActivoMet}</div><div class="met-map-status-list">${filas}</div>${invalidos ? `<div class="mt-1.5 pt-1.5 border-t border-slate-200 text-slate-500">${invalidos} inválido(s) conservado(s) en TABLA.</div>` : ''}`;
+
+    const resumenSemanas = $m('met-map-week-status');
+    const meses = [..._mesesSeleccionadosMapaMet()];
+    if (!resumenSemanas || meses.length !== 1) {
+        resumenSemanas?.classList.add('hidden');
+        return;
+    }
+    const periodo = meses[0];
+    const cantidadSemanas = _cantidadSemanasMapaMet(periodo);
+    const registrosMes = subBaseValidaMet.filter(registro => registro.tramo === tramoActivoMet && registro.mes === periodo);
+    const filasSemanas = Array.from({ length: cantidadSemanas }, (_, indice) => {
+        const semana = indice + 1;
+        const cantidad = registrosMes.filter(registro => _semanaFechaMapaMet(registro.original.fecha, periodo) === semana).length;
+        return `<div class="met-status-row"><b>SEM ${semana}</b><span>${cantidad} actividad(es) válida(s)</span></div>`;
+    }).join('');
+    const nombreMes = MESES_NOMBRE_MET[Number(periodo.slice(5)) - 1].toUpperCase();
+    resumenSemanas.innerHTML = `<div class="font-extrabold text-slate-700 mb-1">MES ${nombreMes}</div><div class="met-map-status-list">${filasSemanas}</div>`;
+    resumenSemanas.classList.remove('hidden');
 }
 
 function _formatearProgMapaMet(valor) {
@@ -924,6 +969,25 @@ function _formatearNumeroMet(valor, maxDecimales = 2) {
     return Number(valor || 0).toLocaleString('es-PE', { maximumFractionDigits: maxDecimales });
 }
 
+function _referenciasGraficoMet(valores, ignorarCeros = false) {
+    const muestra = ignorarCeros ? valores.filter(valor => valor !== 0) : valores;
+    if (!muestra.length) return [];
+    return [
+        { nombre: 'Máximo', valor: Math.max(...muestra), color: '#64748b', linea: 'rgba(100,116,139,.40)' },
+        { nombre: 'Promedio', valor: muestra.reduce((a, b) => a + b, 0) / muestra.length, color: '#0284c7', linea: 'rgba(14,165,233,.65)' },
+        { nombre: 'Mínimo', valor: Math.min(...muestra), color: '#64748b', linea: 'rgba(100,116,139,.28)' }
+    ];
+}
+
+function _htmlReferenciasGraficoMet(referencias, escala, altoPlot = 233) {
+    return {
+        lineas: referencias.map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.linea}"></div>`).join(''),
+        resumen: referencias.length
+            ? referencias.map(ref => `<div class="met-chart-stat" style="color:${ref.color}"><span>${ref.nombre}</span><span>${_formatearNumeroMet(ref.valor)}</span></div>`).join('')
+            : '<div class="met-chart-stat text-slate-500"><span>Sin datos</span></div>'
+    };
+}
+
 function _renderizarGraficoMet(id, datos) {
     const contenedor = $m(id);
     if (!contenedor) return;
@@ -933,26 +997,17 @@ function _renderizarGraficoMet(id, datos) {
     }
     const valores = datos.map(d => d.valor);
     const maximo = Math.max(0, ...valores);
-    const minimo = Math.min(...valores);
-    const media = valores.reduce((a, b) => a + b, 0) / valores.length;
     const escala = Math.max(1, maximo);
     const ancho = Math.max(680, datos.length * 70);
-    const altoPlot = 233;
-    const referencias = [
-        { nombre: 'Máximo', valor: maximo, color: '#64748b', linea: 'rgba(100,116,139,.40)' },
-        { nombre: 'Promedio', valor: media, color: '#0284c7', linea: 'rgba(14,165,233,.65)' },
-        { nombre: 'Mínimo', valor: minimo, color: '#64748b', linea: 'rgba(100,116,139,.28)' }
-    ];
-    const lineasReferencia = referencias.map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.linea}"></div>`).join('');
-    const resumenFijo = referencias.map(ref => `<div class="met-chart-stat" style="color:${ref.color}"><span>${ref.nombre}</span><span>${_formatearNumeroMet(ref.valor)}</span></div>`).join('');
+    const referencias = _htmlReferenciasGraficoMet(_referenciasGraficoMet(valores), escala);
     const barras = datos.map(d => `<div class="met-bar-col" title="${_escaparHtmlMet(d.etiqueta)}: ${_formatearNumeroMet(d.valor)}">
         <span class="met-bar-value">${_formatearNumeroMet(d.valor)}</span>
         <div class="met-bar" style="height:${Math.max(d.valor > 0 ? 2 : 0, (d.valor / escala) * 100)}%"></div>
         <span class="met-bar-label">${_escaparHtmlMet(d.etiqueta)}</span>
     </div>`).join('');
     contenedor.innerHTML = `<div class="met-chart-shell">
-        <div class="met-chart-stats-fixed">${resumenFijo}</div>
-        <div class="met-chart-scroller"><div class="met-chart" style="width:max(${ancho}px, 100%)">${lineasReferencia}<div class="met-bars">${barras}</div></div></div>
+        <div class="met-chart-stats-fixed">${referencias.resumen}</div>
+        <div class="met-chart-scroller"><div class="met-chart" style="width:max(${ancho}px, 100%)">${referencias.lineas}<div class="met-bars">${barras}</div></div></div>
     </div>`;
     const desplazamiento = contenedor.querySelector('.met-chart-scroller');
     requestAnimationFrame(() => { desplazamiento.scrollLeft = desplazamiento.scrollWidth; });
@@ -966,18 +1021,8 @@ function _renderizarGraficoLinealMet(id, datos) {
         return;
     }
     const valores = datos.map(d => Number(d.valor) || 0);
-    const significativos = valores.filter(valor => valor !== 0);
     const escala = Math.max(1, ...valores);
-    const altoPlot = 233;
-    const referencias = significativos.length ? [
-        { nombre: 'Máximo', valor: Math.max(...significativos), color: '#64748b', linea: 'rgba(100,116,139,.40)' },
-        { nombre: 'Promedio', valor: significativos.reduce((a, b) => a + b, 0) / significativos.length, color: '#0284c7', linea: 'rgba(14,165,233,.65)' },
-        { nombre: 'Mínimo', valor: Math.min(...significativos), color: '#64748b', linea: 'rgba(100,116,139,.28)' }
-    ] : [];
-    const lineasReferencia = referencias.map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.linea}"></div>`).join('');
-    const resumenFijo = referencias.length
-        ? referencias.map(ref => `<div class="met-chart-stat" style="color:${ref.color}"><span>${ref.nombre}</span><span>${_formatearNumeroMet(ref.valor)}</span></div>`).join('')
-        : '<div class="met-chart-stat text-slate-500"><span>Sin datos</span></div>';
+    const referencias = _htmlReferenciasGraficoMet(_referenciasGraficoMet(valores, true), escala);
     const divisor = Math.max(1, datos.length - 1);
     const posiciones = datos.map((dato, indice) => ({
         dato,
@@ -991,8 +1036,8 @@ function _renderizarGraficoLinealMet(id, datos) {
         .filter(punto => punto.indice === 0 || punto.indice === datos.length - 1 || (punto.indice + 1) % 5 === 0)
         .map(punto => `<span class="met-line-axis-label" style="left:${punto.x}%">${_escaparHtmlMet(punto.dato.etiqueta)}</span>`).join('');
     contenedor.innerHTML = `<div class="met-chart-shell">
-        <div class="met-chart-stats-fixed">${resumenFijo}</div>
-        <div class="met-line-chart">${lineasReferencia}
+        <div class="met-chart-stats-fixed">${referencias.resumen}</div>
+        <div class="met-line-chart">${referencias.lineas}
             <div class="met-line-plot">
                 <svg class="met-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${polilinea}" fill="none" stroke="#0284c7" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 ${puntos}
@@ -1086,8 +1131,7 @@ function seleccionarTramoMapaMet(tramo) {
     if (!TRAMOS_MET.includes(tramo)) return;
     tramoActivoMet = tramo;
     document.querySelectorAll('.met-tramo-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tramo === tramo));
-    aplicarFiltrosMet();
-    renderizarMapaMet(true);
+    aplicarFiltrosMet(true);
 }
 
 function cambiarSubvistaMet(vista) {
@@ -1123,8 +1167,6 @@ function _progresivaParaExcelMet(valor) {
     return Number.isFinite(numero) ? numero : valor;
 }
 
-function poblarSelectoresMet() {}
-
 // ==========================================
 // CONFIGURAR EVENTOS (llamado desde DOMContentLoaded)
 // ==========================================
@@ -1143,6 +1185,10 @@ function configurarEventosMet() {
     $m('met-map-months')?.addEventListener('change', evento => {
         if (evento.target.matches('input[type="checkbox"]')) _cambiarMesVisibleMet(evento.target);
     });
+    $m('met-map-weeks')?.addEventListener('click', evento => {
+        const boton = evento.target.closest('.met-week-btn');
+        if (boton && !boton.disabled) _seleccionarSemanaMapaMet(boton.dataset.week);
+    });
     $m('met-analysis-year')?.addEventListener('change', () => {
         _rellenarMesDetalleMet();
         _renderizarDetalleMensualMet();
@@ -1156,118 +1202,18 @@ function configurarEventosMet() {
 // ==========================================
 // FILTRADO Y ORDENAMIENTO
 // ==========================================
-function aplicarFiltrosMet() {
+function aplicarFiltrosMet(ajustarMapa = false) {
     // TABLA conserva también las filas inválidas para facilitar su auditoría.
     filtradosMetrados = subBaseFiltradaMet.filter(d => tramoSubBaseMet.get(d) === tramoActivoMet);
     filtradosMetrados.sort((a, b) => a.ordenHoja - b.ordenHoja);
     renderizarTablaMet();
-    renderizarMapaMet(false);
+    renderizarMapaMet(ajustarMapa);
     actualizarAnalisisMapaMet();
-}
-
-function _getCampoMet(obj, campo) {
-    return obj[campo] !== undefined ? obj[campo] : '';
-}
-
-function _extraerClaveFotoMet(nombreFoto) {
-    if (!nombreFoto) return '';
-    const sinExt = nombreFoto.replace(/\.[^.]+$/, '');
-    const match  = sinExt.match(/(\d{8}[_\-]\d{6})/);
-    return match ? match[1] : sinExt;
-}
-
-// ==========================================
-// SORT UI
-// ==========================================
-const COLUMNAS_MET = [
-    'fecha','actividad','partida','kmInicial','kmFinal','lado',
-    'metrado','unidad','tramo',
-    'nombreFotoAntes','nombreFotoDurante','nombreFotoDespues',
-    'cntAntes','cntDurante','cntDespues'
-];
-
-function toggleSortMet(columna) {
-    const idx = criteriosMet.findIndex(c => c.columna === columna);
-    if (idx === -1) {
-        criteriosMet.push({ columna, dir: 'asc' });
-    } else if (criteriosMet[idx].dir === 'asc') {
-        criteriosMet[idx].dir = 'desc';
-    } else {
-        criteriosMet.splice(idx, 1);
-    }
-    renderSortUIMet();
-    aplicarFiltrosMet();
-}
-
-function renderSortUIMet() {
-    COLUMNAS_MET.forEach(col => {
-        const circulo = $m(`met-sort-pri-${col}`);
-        const btn     = $m(`met-sort-btn-${col}`);
-        const icon    = $m(`met-sort-icon-${col}`);
-        if (!circulo || !btn || !icon) return;
-
-        const idx = criteriosMet.findIndex(c => c.columna === col);
-        if (idx === -1) {
-            circulo.className = 'absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent opacity-0 transition-all';
-            circulo.textContent = '';
-            btn.className = 'absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors';
-            icon.style.transform = 'rotate(0deg)';
-        } else {
-            circulo.textContent = idx + 1;
-            const dir = criteriosMet[idx].dir;
-            if (dir === 'asc') {
-                circulo.className = 'absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-slate-700 opacity-100 shadow-md transition-all';
-                btn.className = 'absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center text-white bg-slate-700 shadow-sm transition-colors';
-                icon.style.transform = 'rotate(180deg)';
-            } else {
-                circulo.className = 'absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-emerald-500 opacity-100 shadow-md transition-all';
-                btn.className = 'absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center text-white bg-emerald-500 shadow-sm transition-colors';
-                icon.style.transform = 'rotate(0deg)';
-            }
-        }
-    });
-}
-
-// ==========================================
-// PAGINACIÓN
-// ==========================================
-function cambiarPaginaMet(delta) {
-    const total = Math.ceil(filtradosMetrados.length / ITEMS_POR_PAG_MET);
-    const nueva = paginaMetrados + delta;
-    if (nueva >= 1 && nueva <= total) {
-        paginaMetrados = nueva;
-        renderizarTablaMet();
-        $m('met-main-container') && $m('met-main-container').scrollTo({ top: 0, behavior: 'smooth' });
-    }
 }
 
 // ==========================================
 // RENDERIZADO DE TABLA
 // ==========================================
-function _thMet(col, label, widthCls = 'w-[80px] min-w-[80px]') {
-    return `<th class="px-2 py-4 ${widthCls} text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSortMet('${col}')">
-        <div id="met-sort-pri-${col}" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent opacity-0 transition-all"></div>
-        <div class="pb-3 text-[11px]">${label}</div>
-        <div id="met-sort-btn-${col}" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
-            <svg id="met-sort-icon-${col}" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/>
-            </svg>
-        </div>
-    </th>`;
-}
-
-function _thMetWide(col, label, widthCls = 'w-[160px] min-w-[160px]') {
-    return `<th class="px-4 py-4 ${widthCls} text-center border-l border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors relative select-none" onclick="toggleSortMet('${col}')">
-        <div id="met-sort-pri-${col}" class="absolute top-1 right-1 w-4 h-4 rounded-full text-[9px] flex items-center justify-center font-bold text-white bg-transparent opacity-0 transition-all"></div>
-        <div class="pb-3 text-[11px]">${label}</div>
-        <div id="met-sort-btn-${col}" class="absolute bottom-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center bg-transparent text-slate-300 transition-colors">
-            <svg id="met-sort-icon-${col}" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/>
-            </svg>
-        </div>
-    </th>`;
-}
-
 function construirCabecerasMet() {
     const thead = $m('met-tabla-head');
     if (!thead) return;
@@ -1286,179 +1232,8 @@ function construirCabecerasMet() {
     </tr>`;
 }
 
-function _celda_foto_met(driveId, nombreFoto, sufijo) {
-    if (!driveId) return `<span class="text-slate-400 italic text-xs">Sin foto</span>`;
-    if (/^https?:\/\//i.test(driveId) && !_extraerDriveIdMet(driveId)) {
-        return `<div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="met-foto-${sufijo}-${_hashFotoMet(driveId)}">
-            <img src="${_escaparHtmlMet(driveId)}" loading="lazy" class="foto-miniatura" alt="${_escaparHtmlMet(nombreFoto || 'Foto')}" onerror="this.replaceWith(document.createTextNode('Ver foto'))">
-        </div>`;
-    }
-    return `
-    <div class="relative w-full h-24 flex items-center justify-center bg-slate-50" id="met-foto-${sufijo}-${driveId}">
-        <span class="nombre-foto-oculto">${nombreFoto || ''}</span>
-        <svg class="animate-spin h-6 w-6 text-[#0ea5e9]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-    </div>`;
-}
-
 function _escaparHtmlMet(valor) {
     return String(valor || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
-
-function _hashFotoMet(valor) {
-    return String(valor).replace(/[^a-zA-Z0-9_-]/g, '').slice(-32);
-}
-
-function _guardarMiniaturaMet(id, dataUrl) {
-    if (!id || !dataUrl) return;
-    if (CACHE_MINIATURAS_MET.has(id)) CACHE_MINIATURAS_MET.delete(id);
-    CACHE_MINIATURAS_MET.set(id, dataUrl);
-    while (CACHE_MINIATURAS_MET.size > MAX_CACHE_MINIATURAS_MET) {
-        CACHE_MINIATURAS_MET.delete(CACHE_MINIATURAS_MET.keys().next().value);
-    }
-}
-
-async function renderizarTablaMetLegacy() {
-    construirCabecerasMet();
-
-    const tbody   = $m('met-tabla-body');
-    const counter = $m('met-counter-info');
-    const pagInfo = $m('met-pagination-info');
-    const btnPrev = $m('met-btn-prev');
-    const btnNext = $m('met-btn-next');
-    if (!tbody) return;
-
-    tbody.innerHTML = '';
-    if (counter) counter.innerText = `Filtro actual: ${filtradosMetrados.length} registros`;
-
-    if (filtradosMetrados.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="13" class="text-center py-12 text-slate-500">No se encontraron resultados.</td></tr>`;
-        if (pagInfo) pagInfo.innerText = 'Mostrando 0 a 0 de 0 registros';
-        if (btnPrev) btnPrev.disabled = true;
-        if (btnNext) btnNext.disabled = true;
-        return;
-    }
-
-    const inicio  = (paginaMetrados - 1) * ITEMS_POR_PAG_MET;
-    const fin     = Math.min(inicio + ITEMS_POR_PAG_MET, filtradosMetrados.length);
-    const pagina  = filtradosMetrados.slice(inicio, fin);
-    const totalP  = Math.ceil(filtradosMetrados.length / ITEMS_POR_PAG_MET);
-
-    if (pagInfo) pagInfo.innerText = `Mostrando ${inicio+1} a ${fin} de ${filtradosMetrados.length} registros (Pág ${paginaMetrados}/${totalP})`;
-    if (btnPrev) btnPrev.disabled = paginaMetrados === 1;
-    if (btnNext) btnNext.disabled = paginaMetrados === totalP;
-
-    // FASE 1: Renderizar filas con spinners
-    pagina.forEach((d, i) => {
-        const gIdx = inicio + i + 1;
-        const tr   = document.createElement('tr');
-        tr.className = 'bg-white hover:bg-blue-50 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-default';
-
-        const refA = _refFotoMet(d, 'antes');
-        const refD = _refFotoMet(d, 'durante');
-        const refE = _refFotoMet(d, 'despues');
-        const fotoA = refA ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${_escaparHtmlMet(refA)}')">${_celda_foto_met(refA, d.nombreFotoAntes, 'A-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
-        const fotoD = refD ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${_escaparHtmlMet(refD)}')">${_celda_foto_met(refD, d.nombreFotoDurante, 'D-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
-        const fotoE = refE ? `<td class="celda-foto border-l border-slate-300 bg-slate-50/50 cursor-pointer" onclick="abrirEnDriveMet('${_escaparHtmlMet(refE)}')">${_celda_foto_met(refE, d.nombreFotoDespues, 'E-'+gIdx)}</td>` : `<td class="px-3 py-4 text-center border-l border-slate-200"><span class="text-slate-300 italic text-xs">—</span></td>`;
-
-        // Indicador visual de completitud (todos 3 tiempos)
-        const completo = d.cntAntes > 0 && d.cntDurante > 0 && d.cntDespues > 0;
-        const badgeA   = _badge(d.cntAntes,   completo);
-        const badgeD   = _badge(d.cntDurante, completo);
-        const badgeE   = _badge(d.cntDespues, completo);
-
-        tr.innerHTML = `
-            <td class="px-2 py-3 text-center w-[40px] min-w-[40px]"><div class="font-bold text-slate-400 text-xs">${gIdx}</div></td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[90px] min-w-[90px] break-words">
-                <div class="mx-auto text-slate-600 font-mono text-[11px]">${d.fecha || '-'}</div>
-            </td>
-            <td class="px-2 py-3 w-[90px] min-w-[90px] whitespace-normal break-words border-l border-slate-200">
-                <div class="text-xs text-slate-700 font-semibold leading-snug">${d.actividad || '-'}</div>
-            </td>
-            <td class="px-3 py-3 w-[240px] min-w-[240px] whitespace-normal break-words border-l border-slate-200">
-                <div class="text-xs text-slate-600 leading-snug">${d.partida || '-'}</div>
-            </td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[80px] min-w-[80px] break-words">
-                <div class="mx-auto text-slate-500 font-mono text-[11px]">${d.kmInicial !== '' ? d.kmInicial : '-'}</div>
-            </td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[80px] min-w-[80px] break-words">
-                <div class="mx-auto text-slate-500 font-mono text-[11px]">${d.kmFinal !== '' ? d.kmFinal : '-'}</div>
-            </td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[70px] min-w-[70px] break-words">
-                <div class="mx-auto text-slate-600 font-semibold text-[11px]">${d.lado || '-'}</div>
-            </td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[80px] min-w-[80px] break-words">
-                <div class="mx-auto text-slate-700 font-bold text-[11px]">${d.metrado !== '' ? d.metrado : '-'}</div>
-            </td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[70px] min-w-[70px] break-words">
-                <div class="mx-auto text-slate-500 text-[11px]">${d.unidad || '-'}</div>
-            </td>
-            <td class="px-2 py-3 text-center border-l border-slate-200 w-[100px] min-w-[100px] break-words">
-                <div class="mx-auto text-slate-500 text-[11px] leading-snug">${d.tramo || '-'}</div>
-            </td>
-            ${fotoA}
-            ${fotoD}
-            ${fotoE}
-        `;
-        tbody.appendChild(tr);
-    });
-
-    // FASE 2: Cargar fotos en lote
-    const ids = [];
-    pagina.forEach((d, i) => {
-        const gIdx = inicio + i + 1;
-        // El ID del contenedor debe coincidir exactamente con el creado por
-        // _celda_foto_met: incluye tipo, índice global y DRIVE_ID.
-        if (d.driveIdAntes)   ids.push({ id: d.driveIdAntes,   containerId: `met-foto-A-${gIdx}-${d.driveIdAntes}` });
-        if (d.driveIdDurante) ids.push({ id: d.driveIdDurante, containerId: `met-foto-D-${gIdx}-${d.driveIdDurante}` });
-        if (d.driveIdDespues) ids.push({ id: d.driveIdDespues, containerId: `met-foto-E-${gIdx}-${d.driveIdDespues}` });
-    });
-
-    const uniqueIds = [...new Set(ids.map(x => x.id))];
-    const pintarMiniaturas = (fuente) => {
-        ids.forEach(({ id, containerId }) => {
-            const container = document.getElementById(containerId);
-            if (!container) return;
-            if (fuente[id]) {
-                container.innerHTML = `<img src="${fuente[id]}" loading="lazy" class="foto-miniatura" alt="Foto de metrado">`;
-            }
-        });
-    };
-
-    // Mostrar inmediatamente las miniaturas ya descargadas en esta sesión.
-    const enCache = Object.fromEntries(CACHE_MINIATURAS_MET.entries());
-    pintarMiniaturas(enCache);
-    const idsPendientes = uniqueIds.filter(id => !CACHE_MINIATURAS_MET.has(id));
-
-    if (idsPendientes.length > 0 && typeof GAS_THUMBS_URL !== 'undefined' && GAS_THUMBS_URL !== 'PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS') {
-        // Un panel puede tener 75 fotos. Apps Script responde mejor a lotes
-        // pequeños; cada lote pinta sus fotos antes de pedir el siguiente.
-        for (let i = 0; i < idsPendientes.length; i += TAMANO_LOTE_MINIATURAS_MET) {
-            const lote = idsPendientes.slice(i, i + TAMANO_LOTE_MINIATURAS_MET);
-            try {
-                const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids: lote }) });
-                const data = await resp.json();
-                if (data.success && data.data) {
-                    Object.entries(data.data).forEach(([id, dataUrl]) => _guardarMiniaturaMet(id, dataUrl));
-                    pintarMiniaturas(data.data);
-                }
-            } catch (e) {
-                console.warn('No se pudo cargar un lote de miniaturas de Metrados:', e);
-            }
-
-            // Solo las fotos de este lote que realmente fallaron muestran el
-            // enlace de respaldo; las demás continúan cargando normalmente.
-            lote.forEach(id => {
-                if (CACHE_MINIATURAS_MET.has(id)) return;
-                ids.filter(item => item.id === id).forEach(({ containerId }) => {
-                    const container = document.getElementById(containerId);
-                    if (container) container.innerHTML = `<span class="text-xs text-slate-400">🔗 Ver foto</span>`;
-                });
-            });
-        }
-    }
 }
 
 function renderizarTablaMet() {
@@ -1491,41 +1266,6 @@ function renderizarTablaMet() {
     });
     tbody.appendChild(fragmento);
     if (info) info.textContent = `${filtradosMetrados.length.toLocaleString('es-PE')} registros · ${tramoActivoMet} · ${_etiquetaMesMapaMet(filtroGeneralMet.desde)} a ${_etiquetaMesMapaMet(filtroGeneralMet.hasta)}`;
-}
-
-function _badge(cnt, completo) {
-    if (cnt === 0) return `<span class="inline-block w-6 h-6 rounded-full bg-red-100 text-red-500 text-[10px] font-bold flex items-center justify-center">0</span>`;
-    const cls = completo ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600';
-    return `<span class="inline-block w-6 h-6 rounded-full ${cls} text-[10px] font-bold flex items-center justify-center">${cnt}</span>`;
-}
-
-// ==========================================
-// VISOR DE FOTO (Drive nativo)
-// ==========================================
-function abrirEnDriveMet(id) {
-    if (!id) return;
-    const destino = /^https?:\/\//i.test(id) ? id : `https://drive.google.com/file/d/${id}/view`;
-    window.open(destino, '_blank');
-}
-
-// ==========================================
-// EXPORTACIÓN CSV
-// ==========================================
-function exportarCSVMet() {
-    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
-    const data = filtradosMetrados.map((d, i) => ({
-        'ITEM': i + 1, 'FECHA': d.fecha, 'ACTIVIDAD': d.actividad, 'PARTIDA': d.partida,
-        'KM INICIAL': d.kmInicial, 'KM FINAL': d.kmFinal, 'LADO': d.lado,
-        'METRADO': d.metrado, 'UNIDAD': d.unidad, 'TRAMO': d.tramo,
-        'FOTO_ANTES': _enlaceFotoMet(_refFotoMet(d, 'antes')),
-        'FOTO_DURANTE': _enlaceFotoMet(_refFotoMet(d, 'durante')),
-        'FOTO_DESPUES': _enlaceFotoMet(_refFotoMet(d, 'despues'))
-    }));
-    const csv = Papa.unparse(data, { quotes: true, header: true, newline: '\n' });
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `Metrados_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 // ==========================================
@@ -1589,312 +1329,6 @@ async function exportarXLSXMet() {
         console.info(`Excel METRADOS generado con ${registros.length} registros en orden de hoja.`);
         alert(`Excel generado con ${registros.length} registros de METRADOS.`);
     } catch(e) { console.error(e); alert('Error al generar Excel: ' + e.message); }
-    finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
-}
-
-// ==========================================
-// DESCARGAR FOTOS (ZIP vía Apps Script)
-// ==========================================
-// ==========================================
-// EXPORTACIÓN WORD (LÓGICA DEL GENERADOR PYTHON)
-// ==========================================
-function _dataUrlABytesMet(dataUrl) {
-    const base64 = String(dataUrl || '').split(',')[1];
-    if (!base64) return null;
-    const binario = atob(base64);
-    const bytes = new Uint8Array(binario.length);
-    for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
-    return bytes;
-}
-
-async function _urlADataUrlMet(url) {
-    if (!url) return '';
-    if (/^data:image\//i.test(url)) return url;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const blob = await resp.blob();
-    return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
-}
-
-async function _obtenerImagenesWordMet(registros) {
-    const referencias = [];
-    const agregar = (d, tipo, id) => {
-        const ref = _refFotoMet(d, tipo);
-        if (ref) referencias.push({ d, tipo, ref, id: id || '' });
-    };
-    registros.forEach(d => {
-        agregar(d, 'antes', d.driveIdAntes);
-        agregar(d, 'durante', d.driveIdDurante);
-        agregar(d, 'despues', d.driveIdDespues);
-    });
-
-    const resultado = new Map();
-    const ids = [...new Set(referencias.map(x => x.id).filter(Boolean))];
-    if (ids.length && typeof GAS_THUMBS_URL !== 'undefined') {
-        try {
-            const resp = await fetch(GAS_THUMBS_URL, { method: 'POST', body: JSON.stringify({ ids }) });
-            const data = await resp.json();
-            if (data.success && data.data) Object.entries(data.data).forEach(([id, dataUrl]) => resultado.set(id, dataUrl));
-        } catch (e) {
-            console.warn('No se pudieron obtener las miniaturas para Word:', e);
-        }
-    }
-
-    for (const item of referencias) {
-        const dataUrl = item.id ? resultado.get(item.id) : item.ref;
-        if (!dataUrl) continue;
-        try {
-            const imagen = /^data:image\//i.test(dataUrl) ? dataUrl : await _urlADataUrlMet(dataUrl);
-            const bytes = _dataUrlABytesMet(imagen);
-            if (bytes) resultado.set(`${item.d.__metWordKey}|${item.tipo}`, bytes);
-        } catch (e) {
-            console.warn('Foto omitida en Word:', item.ref, e);
-        }
-    }
-    return resultado;
-}
-
-function _textoTituloWordMet(d) {
-    return d.partida || d.actividad || 'Partida sin descripción';
-}
-
-function _textoKmWordMet(d) {
-    return `KM INICIAL: ${d.kmInicial || '-'}    KM FINAL: ${d.kmFinal || '-'}`;
-}
-
-function _progresivaEnMetrosMet(valor) {
-    const numero = _numeroKmMet(valor);
-    if (Number.isNaN(numero)) return NaN;
-    // 43+000 se interpreta como 43000; un valor 43.0 se interpreta como km.
-    return numero < 1000 ? numero * 1000 : numero;
-}
-
-function _grupoPorProgresivaMet(valor) {
-    const metros = _progresivaEnMetrosMet(valor);
-    if (Number.isNaN(metros)) return 'SIN ASIGNAR';
-    if (metros < 45000) return 'GP-01';
-    if (metros < 90000) return 'GP-03';
-    if (metros < 138000) return 'GP-04';
-    if (metros <= 174300) return 'GP-05';
-    if (metros > 174300) return 'ERROR';
-    return 'SIN ASIGNAR';
-}
-
-function _tramoPorProgresivaMet(valor, tramoRegistrado) {
-    const metros = _progresivaEnMetrosMet(valor);
-    if (!Number.isNaN(metros)) {
-        if (metros <= 23800) return 'I';
-        if (metros <= 62500) return 'II';
-        if (metros <= 77250) return 'III';
-        if (metros <= 107850) return 'IV';
-        if (metros <= 161450) return 'V';
-        if (metros <= 172000) return 'VI';
-        if (metros <= 174100) return 'VII';
-    }
-    return String(tramoRegistrado || 'SIN TRAMO').replace(/^TRAMO\s*/i, '').trim() || 'SIN TRAMO';
-}
-
-function _textoSeguroNombreArchivoMet(texto) {
-    return String(texto || '').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
-}
-
-async function _generarWordUnicoMet() {
-    if (filtradosMetrados.length === 0) { alert('No hay registros para exportar.'); return; }
-    if (typeof docx === 'undefined') {
-        alert('No se pudo cargar el generador de documentos Word. Verifica tu conexión a Internet.');
-        return;
-    }
-    const btn = document.getElementById('met-btn-export-word') || document.getElementById('btn-export-word');
-    const original = btn ? btn.innerHTML : '';
-    try {
-        if (btn) { btn.disabled = true; btn.innerHTML = 'Generando Word...'; }
-        filtradosMetrados.forEach((d, i) => { d.__metWordKey = String(i); });
-        const imagenes = await _obtenerImagenesWordMet(filtradosMetrados);
-        const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType } = docx;
-        const children = [];
-
-        filtradosMetrados.forEach((d, i) => {
-            const esPrimeraHoja = i === 0;
-            const altoFoto = esPrimeraHoja ? 205 : 235;
-            const anchoFoto = esPrimeraHoja ? 307 : 352;
-
-            // Solo la primera hoja lleva cabecera de fecha, grupo y tramo.
-            if (esPrimeraHoja) {
-                children.push(new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 90 },
-                    children: [new TextRun({ text: `FECHA: ${d.fecha || '-'}`, bold: true, font: 'Arial', size: 24 })]
-                }));
-                children.push(new Paragraph({
-                    spacing: { after: 120 },
-                    children: [new TextRun({ text: `GRUPO: ${d.grupo || d.actividad || '-'}    TRAMO: ${d.tramo || '-'}`, bold: true, font: 'Arial', size: 22 })]
-                }));
-            }
-
-            // Cada partida empieza en una página nueva a partir de la segunda,
-            // por lo que sus tres fotos nunca se mezclan con la partida siguiente.
-            children.push(new Paragraph({
-                pageBreakBefore: !esPrimeraHoja,
-                alignment: AlignmentType.CENTER,
-                spacing: { after: 45 },
-                keepNext: true,
-                children: [new TextRun({ text: _textoTituloWordMet(d), bold: true, font: 'Arial', size: 26 })]
-            }));
-            children.push(new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { after: 100 },
-                keepNext: true,
-                children: [new TextRun({ text: _textoKmWordMet(d), bold: true, font: 'Arial', size: 20 })]
-            }));
-            ['antes', 'durante', 'despues'].forEach(tipo => {
-                const bytes = imagenes.get(`${d.__metWordKey}|${tipo}`);
-                if (!bytes) return;
-                children.push(new Paragraph({
-                    alignment: AlignmentType.CENTER,
-                    spacing: { after: 75 },
-                    children: [new ImageRun({ data: bytes, transformation: { height: altoFoto, width: anchoFoto } })]
-                }));
-            });
-        });
-
-        const documento = new Document({
-            sections: [{
-                properties: { page: { margin: { top: 720, right: 900, bottom: 720, left: 900 } } },
-                children
-            }]
-        });
-        const blob = await Packer.toBlob(documento);
-        saveAs(blob, `METRADOS_${new Date().toISOString().slice(0, 10)}.docx`);
-    } catch (e) {
-        console.error(e);
-        alert('Error al generar Word: ' + e.message);
-    } finally {
-        filtradosMetrados.forEach(d => delete d.__metWordKey);
-        if (btn) { btn.innerHTML = original; btn.disabled = false; }
-    }
-}
-
-let colaWordsMet = [];
-
-function _fechaNombreWordMet(fecha) {
-    const iso = String(fecha || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
-    const local = String(fecha || '').match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-    if (local) return `${local[1].padStart(2, '0')}-${local[2].padStart(2, '0')}-${local[3]}`;
-    return _textoSeguroNombreArchivoMet(fecha || 'SIN-FECHA');
-}
-
-function _crearColaWordsMet() {
-    const trabajos = new Map();
-    filtradosMetrados.forEach(d => {
-        const progresiva = d.kmInicial || d.kmFinal;
-        const grupo = _grupoPorProgresivaMet(progresiva);
-        const tramo = _tramoPorProgresivaMet(progresiva, d.tramo);
-        const clave = `${grupo}|${tramo}`;
-        if (!trabajos.has(clave)) trabajos.set(clave, { grupo, tramo, registros: [], estado: 'Pendiente', error: '' });
-        trabajos.get(clave).registros.push(d);
-    });
-    return [...trabajos.values()]
-        .map((t, id) => ({ ...t, id, registros: t.registros.sort((a, b) => _progresivaEnMetrosMet(a.kmInicial) - _progresivaEnMetrosMet(b.kmInicial)) }))
-        .sort((a, b) => `${a.grupo}-${a.tramo}`.localeCompare(`${b.grupo}-${b.tramo}`, undefined, { numeric: true }));
-}
-
-function _nombreWordColaMet(trabajo) {
-    const grupo = String(trabajo.grupo).replace(/^GP-/i, '').padStart(2, '0');
-    const fecha = _fechaNombreWordMet(trabajo.registros[0]?.fecha);
-    return `GRUPO ${grupo} - ${fecha} TRAMO ${trabajo.tramo}.docx`;
-}
-
-function _mostrarColaWordsMet() {
-    document.getElementById('met-word-queue')?.remove();
-    const panel = document.createElement('div');
-    panel.id = 'met-word-queue';
-    panel.className = 'fixed inset-0 z-[100] bg-slate-950/70 flex items-center justify-center p-4';
-    const filas = colaWordsMet.map(t => `<div class="flex items-center justify-between gap-4 py-3 border-b border-slate-200">
-        <div><p class="font-bold text-slate-800">${_nombreWordColaMet(t)}</p><p class="text-sm text-slate-500">${t.registros.length} partidas · ${t.estado}${t.error ? `: ${t.error}` : ''}</p></div>
-        <button data-word-id="${t.id}" ${t.estado === 'Generando' ? 'disabled' : ''} class="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 text-white font-bold text-sm disabled:opacity-50">Generar y descargar</button>
-    </div>`).join('');
-    panel.innerHTML = `<div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"><div class="p-5 border-b border-slate-200 flex justify-between"><div><h2 class="font-bold text-lg">Cola de documentos Word</h2><p class="text-sm text-slate-500">${colaWordsMet.length} documento(s). Descarga uno por uno para controlar el proceso.</p></div><button id="met-word-close" class="text-2xl text-slate-500">×</button></div><div class="px-5 max-h-[65vh] overflow-y-auto">${filas}</div></div>`;
-    document.body.appendChild(panel);
-    panel.querySelector('#met-word-close').addEventListener('click', () => panel.remove());
-    panel.querySelectorAll('[data-word-id]').forEach(b => b.addEventListener('click', () => generarWordColaMet(Number(b.dataset.wordId))));
-}
-
-async function _crearBlobWordColaMet(trabajo) {
-    const { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType } = docx;
-    trabajo.registros.forEach((d, i) => { d.__metWordKey = String(i); });
-    try {
-        const imagenes = await _obtenerImagenesWordMet(trabajo.registros);
-        const children = [];
-        trabajo.registros.forEach((d, i) => {
-            const primera = i === 0;
-            const alto = primera ? 205 : 235;
-            const ancho = primera ? 307 : 352;
-            if (primera) {
-                children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 90 }, children: [new TextRun({ text: `FECHA: ${d.fecha || '-'}`, bold: true, font: 'Arial', size: 24 })] }));
-                children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `GRUPO: ${trabajo.grupo}    TRAMO: ${trabajo.tramo}`, bold: true, font: 'Arial', size: 22 })] }));
-            }
-            children.push(new Paragraph({ pageBreakBefore: !primera, alignment: AlignmentType.CENTER, spacing: { after: 45 }, children: [new TextRun({ text: _textoTituloWordMet(d), bold: true, font: 'Arial', size: 26 })] }));
-            children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new TextRun({ text: _textoKmWordMet(d), bold: true, font: 'Arial', size: 20 })] }));
-            ['antes', 'durante', 'despues'].forEach(tipo => {
-                const bytes = imagenes.get(`${d.__metWordKey}|${tipo}`);
-                if (bytes) children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 75 }, children: [new ImageRun({ data: bytes, transformation: { height: alto, width: ancho } })] }));
-            });
-        });
-        return await Packer.toBlob(new Document({ sections: [{ properties: { page: { margin: { top: 720, right: 900, bottom: 720, left: 900 } } }, children }] }));
-    } finally {
-        trabajo.registros.forEach(d => delete d.__metWordKey);
-    }
-}
-
-async function generarWordColaMet(id) {
-    const trabajo = colaWordsMet.find(t => t.id === id);
-    if (!trabajo || trabajo.estado === 'Generando') return;
-    if (typeof docx === 'undefined') { alert('No se pudo cargar el generador Word. Verifica tu conexión.'); return; }
-    trabajo.estado = 'Generando'; trabajo.error = ''; _mostrarColaWordsMet();
-    try {
-        saveAs(await _crearBlobWordColaMet(trabajo), _nombreWordColaMet(trabajo));
-        trabajo.estado = 'Descargado';
-    } catch (e) {
-        console.error(e);
-        trabajo.estado = 'Error'; trabajo.error = e.message || 'Error desconocido';
-    }
-    _mostrarColaWordsMet();
-}
-
-function exportarWordMet() {
-    window.open('https://drive.google.com/drive/folders/1HDNKmVu2XRf0mqtdnxd-4ndJw8hmkhJG?usp=drive_link', '_blank', 'noopener');
-}
-
-async function descargarFotosMet() {
-    const btn = document.getElementById('btn-download-zip');
-    const fotos = [];
-    filtradosMetrados.forEach((d, i) => {
-        if (d.driveIdAntes)   fotos.push({ id: d.driveIdAntes,   nombre: d.nombreFotoAntes   || `ANTES_${i+1}.jpg`   });
-        if (d.driveIdDurante) fotos.push({ id: d.driveIdDurante, nombre: d.nombreFotoDurante || `DURANTE_${i+1}.jpg` });
-        if (d.driveIdDespues) fotos.push({ id: d.driveIdDespues, nombre: d.nombreFotoDespues || `DESPUES_${i+1}.jpg` });
-    });
-    if (fotos.length === 0) { alert('No hay fotos en el filtro actual.'); return; }
-    if (!confirm(`¿Descargar ${fotos.length} foto(s) en un ZIP?`)) return;
-    const origText = btn ? btn.innerHTML : '';
-    if (btn) { btn.innerHTML = 'Compilando en la nube...'; btn.disabled = true; }
-    try {
-        const response = await fetch(GAS_ZIP_URL, {
-            method: 'POST',
-            body: JSON.stringify({ archivos: fotos, nombreZip: `Metrados_${new Date().toISOString().slice(0,10)}.zip` })
-        });
-        const result = await response.json();
-        if (result.success && result.downloadUrl) {
-            window.location.href = result.downloadUrl;
-        } else {
-            alert('Error al generar ZIP: ' + (result.error || 'Desconocido'));
-        }
-    } catch(e) { alert('Error de conexión con el servidor.'); }
     finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
 }
 

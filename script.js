@@ -32,7 +32,9 @@ function cambiarVista(vista, esManual = true) {
     const btnRegistro    = document.getElementById('btn-nav-registro');
     const btnAsistencia  = document.getElementById('btn-nav-asistencia');
     const btnMetrados    = document.getElementById('btn-nav-metrados');
-    const btnExportWord  = document.getElementById('btn-export-word');
+    const btnExportMetrados = document.getElementById('btn-export-metrados');
+    const btnExportXlsx  = document.getElementById('btn-export-xlsx');
+    const btnDownloadZip = document.getElementById('btn-download-zip');
     
     // Guardar en session
     sessionStorage.setItem('vistaActual', vista);
@@ -64,7 +66,9 @@ function cambiarVista(vista, esManual = true) {
         btnRegistro  && (btnRegistro.classList.remove(...clsInactive), btnRegistro.classList.add(...clsActive));
         headerMain       && headerMain.classList.remove('hidden');
         headerAsistencia && headerAsistencia.classList.add('hidden');
-        btnExportWord    && btnExportWord.classList.add('hidden');
+        btnExportMetrados && btnExportMetrados.classList.add('hidden');
+        btnExportXlsx     && btnExportXlsx.classList.remove('hidden');
+        btnDownloadZip    && btnDownloadZip.classList.remove('hidden');
         cargarDatos();
         
     } else if (vista === 'asistencia') {
@@ -72,6 +76,7 @@ function cambiarVista(vista, esManual = true) {
         btnAsistencia  && (btnAsistencia.classList.remove(...clsInactive), btnAsistencia.classList.add(...clsActive));
         headerMain       && headerMain.classList.add('hidden');
         headerAsistencia && headerAsistencia.classList.remove('hidden');
+        btnExportMetrados && btnExportMetrados.classList.add('hidden');
         if (typeof cargarDatosAsistencia === 'function') cargarDatosAsistencia();
 
     } else if (vista === 'metrados') {
@@ -79,7 +84,11 @@ function cambiarVista(vista, esManual = true) {
         btnMetrados  && (btnMetrados.classList.remove(...clsInactive), btnMetrados.classList.add(...clsActive));
         headerMain       && headerMain.classList.remove('hidden');
         headerAsistencia && headerAsistencia.classList.add('hidden');
-        btnExportWord    && btnExportWord.classList.remove('hidden');
+        // Metrados usa una sola acción superior: exportar exclusivamente la
+        // hoja METRADOS. Las acciones generales de Registro quedan ocultas.
+        btnExportXlsx     && btnExportXlsx.classList.add('hidden');
+        btnDownloadZip    && btnDownloadZip.classList.add('hidden');
+        btnExportMetrados && btnExportMetrados.classList.remove('hidden');
         if (typeof inicializarMetrados === 'function') inicializarMetrados();
     }
     
@@ -193,9 +202,7 @@ function configurarEventos() {
         else exportarXLSX();
     });
     dom.btnZip.addEventListener('click', () => {
-        const vista = sessionStorage.getItem('vistaActual');
-        if (vista === 'metrados' && typeof descargarFotosMet === 'function') descargarFotosMet();
-        else descargarFotosVisibles();
+        descargarFotosVisibles();
     });
     
     // Paginación
