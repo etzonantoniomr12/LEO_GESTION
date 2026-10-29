@@ -863,12 +863,9 @@ function actualizarAnalisisMapaMet() {
     const serie = periodos.map(periodo => {
         const mensual = _datosActividadTramoMet(filtroGeneralMet.actividad, periodo, periodo)
             .reduce((suma, registro) => suma + registro.metrado, 0);
-        const inicioGestion = _inicioGestionPeriodoMet(periodo);
-        const acumulado = _datosActividadTramoMet(filtroGeneralMet.actividad, inicioGestion, periodo)
-            .reduce((suma, registro) => suma + registro.metrado, 0);
-        return { clave: periodo, etiqueta: _etiquetaMesMapaMet(periodo), valor: mensual, acumulado, gestion: inicioGestion.slice(0, 4) };
+        return { clave: periodo, etiqueta: _etiquetaMesMapaMet(periodo), valor: mensual };
     });
-    _renderizarGraficoMet('met-chart-monthly', serie, true);
+    _renderizarGraficoMet('met-chart-monthly', serie);
     _renderizarAnilloAnualMet();
     _poblarDetalleAnalisisMet();
     _renderizarDetalleMensualMet();
@@ -895,22 +892,11 @@ function _datosActividadTramoMet(actividad, desde, hasta) {
     return salida;
 }
 
-function _inicioGestionPeriodoMet(periodo) {
-    const [anio, mes] = periodo.split('-').map(Number);
-    const inicio = mes >= 9 ? anio : anio - 1;
-    return `${inicio}-09`;
-}
-
-function _finGestionPeriodoMet(periodo) {
-    const inicio = Number(_inicioGestionPeriodoMet(periodo).slice(0, 4));
-    return `${inicio + 1}-08`;
-}
-
 function _formatearNumeroMet(valor, maxDecimales = 2) {
     return Number(valor || 0).toLocaleString('es-PE', { maximumFractionDigits: maxDecimales });
 }
 
-function _renderizarGraficoMet(id, datos, mostrarAcumulado) {
+function _renderizarGraficoMet(id, datos) {
     const contenedor = $m(id);
     if (!contenedor) return;
     if (!datos.length) {
@@ -925,29 +911,23 @@ function _renderizarGraficoMet(id, datos, mostrarAcumulado) {
     const ancho = Math.max(680, datos.length * 70);
     const altoPlot = 233;
     const referencias = [
-        { nombre: 'Máx.', valor: maximo, color: 'rgba(100,116,139,.40)' },
-        { nombre: 'Media', valor: media, color: 'rgba(14,165,233,.65)' },
-        { nombre: 'Mín.', valor: minimo, color: 'rgba(100,116,139,.28)' }
-    ].map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.color}"><span style="color:${ref.color}">${ref.nombre} ${_formatearNumeroMet(ref.valor)}</span></div>`).join('');
-
-    let lineas = '';
-    let maxAcumulado = 0;
-    if (mostrarAcumulado) {
-        maxAcumulado = Math.max(1, ...datos.map(d => d.acumulado || 0));
-        const grupos = new Map();
-        datos.forEach((d, i) => {
-            if (!grupos.has(d.gestion)) grupos.set(d.gestion, []);
-            grupos.get(d.gestion).push(`${(i + .5) * 60},${altoPlot - ((d.acumulado || 0) / maxAcumulado) * altoPlot}`);
-        });
-        lineas = `<svg class="met-cumulative-svg" viewBox="0 0 ${datos.length * 60} ${altoPlot}" preserveAspectRatio="none">${[...grupos.values()].map(puntos => `<polyline points="${puntos.join(' ')}" fill="none" stroke="#0b132b" stroke-width="3" vector-effect="non-scaling-stroke"/>`).join('')}</svg>
-            <span class="absolute top-1 right-1 text-[9px] font-bold text-[#0b132b]">Acum. ${_formatearNumeroMet(maxAcumulado)}</span>`;
-    }
+        { nombre: 'Máximo', valor: maximo, color: '#64748b', linea: 'rgba(100,116,139,.40)' },
+        { nombre: 'Promedio', valor: media, color: '#0284c7', linea: 'rgba(14,165,233,.65)' },
+        { nombre: 'Mínimo', valor: minimo, color: '#64748b', linea: 'rgba(100,116,139,.28)' }
+    ];
+    const lineasReferencia = referencias.map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.linea}"></div>`).join('');
+    const resumenFijo = referencias.map(ref => `<div class="met-chart-stat" style="color:${ref.color}"><span>${ref.nombre}</span><span>${_formatearNumeroMet(ref.valor)}</span></div>`).join('');
     const barras = datos.map(d => `<div class="met-bar-col" title="${_escaparHtmlMet(d.etiqueta)}: ${_formatearNumeroMet(d.valor)}">
         <span class="met-bar-value">${_formatearNumeroMet(d.valor)}</span>
         <div class="met-bar" style="height:${Math.max(d.valor > 0 ? 2 : 0, (d.valor / escala) * 100)}%"></div>
         <span class="met-bar-label">${_escaparHtmlMet(d.etiqueta)}</span>
     </div>`).join('');
-    contenedor.innerHTML = `<div class="met-chart" style="width:${ancho}px">${referencias}<div class="met-bars">${barras}</div>${lineas}</div>`;
+    contenedor.innerHTML = `<div class="met-chart-shell">
+        <div class="met-chart-stats-fixed">${resumenFijo}</div>
+        <div class="met-chart-scroller"><div class="met-chart" style="width:max(${ancho}px, 100%)">${lineasReferencia}<div class="met-bars">${barras}</div></div></div>
+    </div>`;
+    const desplazamiento = contenedor.querySelector('.met-chart-scroller');
+    requestAnimationFrame(() => { desplazamiento.scrollLeft = desplazamiento.scrollWidth; });
 }
 
 function _htmlAnilloMet(titulo, subtitulo, actual, meta, unidad) {
@@ -1021,7 +1001,7 @@ function _renderizarDetalleMensualMet() {
         if (dia) porDia.set(dia, (porDia.get(dia) || 0) + r.metrado);
     });
     const serie = Array.from({ length: diasMes }, (_, indice) => ({ clave: indice + 1, etiqueta: String(indice + 1), valor: porDia.get(indice + 1) || 0 }));
-    _renderizarGraficoMet('met-chart-daily', serie, false);
+    _renderizarGraficoMet('met-chart-daily', serie);
     const actual = registros.reduce((s, r) => s + r.metrado, 0);
     const config = _configActividadActualMet();
     const metaAnual = config?.metas?.[tramoActivoMet] || 0;
