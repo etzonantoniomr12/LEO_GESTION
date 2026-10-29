@@ -1,13 +1,18 @@
-const CACHE_NAME = 'reportes-vial-v20';
+const CACHE_NAME = 'reportes-vial-v23';
 const urlsToCache = [
   './index.html',
-    './script.js?v=16',
-    './metrados.js?v=14',
+    './script.js?v=17',
+    './metrados.js?v=17',
+  './CSV HITOS Y EJE/EJES_TRAMOS.csv',
+  './CSV HITOS Y EJE/HITOS_REALES.csv',
   './manifest.json',
   'https://cdn.tailwindcss.com',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
 

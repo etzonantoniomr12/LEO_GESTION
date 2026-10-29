@@ -19,6 +19,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -127,6 +130,20 @@
         /* Loader */
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #0ea5e9; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Metrados georreferenciados */
+        #met-map { width: 100%; height: 100%; min-height: 460px; background: #dbe5ee; }
+        .met-tramo-tab.active { background: #0b132b; color: white; border-color: #0b132b; box-shadow: 0 5px 14px rgba(11,19,43,.22); }
+        .met-view-tab.active { color: #0b132b; border-color: #0ea5e9; background: #f0f9ff; }
+        .met-map-card { background: rgba(255,255,255,.94); backdrop-filter: blur(10px); box-shadow: 0 12px 30px rgba(15,23,42,.18); }
+        .met-month-chip input:checked + span { border-color: var(--month-color); background: color-mix(in srgb, var(--month-color) 12%, white); color: #0f172a; }
+        .met-month-dot { background: var(--month-color); }
+        .leaflet-popup-content-wrapper { border-radius: 12px; }
+        .leaflet-popup-content { margin: 12px 14px; min-width: 230px; }
+        .met-popup-title { font-weight: 800; color: #0f172a; line-height: 1.25; margin-bottom: 8px; }
+        .met-popup-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 9px; font-size: 11px; color: #475569; }
+        .met-popup-grid b { color: #0f172a; }
+        .met-popup-list { margin-top: 8px; padding-top: 7px; border-top: 1px solid #e2e8f0; max-height: 150px; overflow: auto; font-size: 11px; color: #334155; }
     </style>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -262,9 +279,9 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         Exportar PDF
                     </button>
-                    <button id="btn-export-word" class="hidden flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-blue-700/30 disabled:opacity-50 disabled:cursor-not-allowed">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2zm3 4h4m-4 4h4m-4 4h4"></path></svg>
-                        Exportar en Word
+                    <button id="btn-export-metrados" class="hidden flex items-center gap-2 bg-blue-700 hover:bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-blue-700/30 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        EXPORTAR EXCEL
                     </button>
                     <button id="btn-download-zip" class="flex items-center gap-2 bg-brand-500 hover:bg-brand-400 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 shadow-lg shadow-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
@@ -512,6 +529,79 @@
 
     <!-- VISTA METRADOS -->
     <div id="view-metrados" class="hidden flex flex-col flex-1 min-h-0 w-full relative bg-slate-50">
+        <!-- Pestañas superiores: tramo calculado por KM INICIAL -->
+        <div id="met-tramo-tabs" class="bg-white border-b border-slate-200 px-4 py-2 flex gap-2 overflow-x-auto shrink-0">
+            <button class="met-tramo-tab active px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO I">TRAMO I</button>
+            <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO II">TRAMO II</button>
+            <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO III">TRAMO III</button>
+            <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO IV">TRAMO IV</button>
+            <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO V">TRAMO V</button>
+            <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO VI">TRAMO VI</button>
+            <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO VII">TRAMO VII</button>
+        </div>
+
+        <div class="relative flex-1 min-h-0 overflow-hidden">
+            <div id="met-loading" class="absolute inset-0 bg-slate-50/95 z-[900] flex flex-col items-center justify-center">
+                <div class="loader mb-4"></div>
+                <p class="text-slate-500 font-medium animate-pulse">Preparando metrados y cartografía...</p>
+            </div>
+            <!-- MAPA -->
+            <section id="met-panel-mapa" class="absolute inset-0">
+                <div id="met-map"></div>
+
+                <div class="met-map-card absolute top-4 left-4 z-[500] w-[310px] max-w-[calc(100%-2rem)] rounded-2xl border border-white/70 overflow-hidden">
+                    <div class="px-4 py-3 bg-[#0b132b] text-white">
+                        <p class="font-bold text-sm">Actividades ejecutadas</p>
+                        <p class="text-[10px] text-slate-300 mt-0.5">Coordenadas UTM 18S · filtros del mapa</p>
+                    </div>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Actividad</label>
+                            <select id="met-map-actividad" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white outline-none focus:ring-2 focus:ring-sky-500">
+                                <option value="ALL">Todas las actividades</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Meses visibles</label>
+                                <button id="met-map-meses-todos" class="text-[10px] font-bold text-sky-700 hover:underline">Todos</button>
+                            </div>
+                            <div id="met-map-months" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto"></div>
+                        </div>
+                        <div id="met-map-status" class="rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 text-[11px] text-slate-600">Preparando mapa...</div>
+                    </div>
+                </div>
+
+                <div id="met-map-legend" class="met-map-card absolute top-4 right-4 z-[500] w-44 rounded-xl border border-white/70 p-3 text-[10px] text-slate-600">
+                    <p class="font-bold text-slate-800 mb-2">Nivel de metrado</p>
+                    <div class="space-y-1.5">
+                        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>Nivel 1 · ≤ 50%</div>
+                        <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full border-2 border-sky-500"></span>Nivel 2 · ≤ 100%</div>
+                        <div class="flex items-center gap-2"><span class="w-4.5 h-4.5 rounded-full border-2 border-sky-500"></span>Nivel 3 · ≤ 200%</div>
+                        <div class="flex items-center gap-2"><span class="w-5 h-5 rounded-full border-[3px] border-sky-500"></span>Nivel 4 · > 200%</div>
+                    </div>
+                    <div id="met-map-month-legend" class="mt-3 pt-2 border-t border-slate-200 space-y-1"></div>
+                </div>
+            </section>
+
+            <!-- ANÁLISIS -->
+            <section id="met-panel-analisis" class="hidden absolute inset-0 overflow-auto bg-slate-50 p-6">
+                <div class="max-w-6xl mx-auto">
+                    <div class="mb-5">
+                        <h2 class="text-xl font-bold text-slate-900">Análisis del tramo</h2>
+                        <p class="text-sm text-slate-500">Resumen de los mismos filtros activos en el mapa.</p>
+                    </div>
+                    <div id="met-analysis-cards" class="grid grid-cols-2 lg:grid-cols-5 gap-4"></div>
+                    <div class="mt-5 bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+                        <h3 class="font-bold text-slate-800 mb-3">Distribución por nivel</h3>
+                        <div id="met-analysis-levels" class="space-y-3"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TABLA -->
+            <section id="met-panel-tabla" class="hidden absolute inset-0 overflow-hidden flex-col bg-slate-50">
+                <select id="met-filter-tramo" class="hidden"><option value="TRAMO I">TRAMO I</option></select>
         <!-- Panel de Filtros Metrados -->
         <div class="bg-white border-b border-slate-200 z-10 shadow-sm relative">
             <div class="px-6 py-4 flex flex-wrap gap-4 items-end">
@@ -572,14 +662,6 @@
                     </select>
                 </div>
 
-                <!-- TRAMO -->
-                <div class="w-36 min-w-[144px]">
-                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Tramo</label>
-                    <select id="met-filter-tramo" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
-                        <option value="ALL">Todos</option>
-                    </select>
-                </div>
-
                 <!-- BUSCAR EN PARTIDA -->
                 <div class="flex-1 min-w-[220px]">
                     <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Buscar en Partida</label>
@@ -603,12 +685,6 @@
 
         <!-- Tabla Metrados -->
         <main id="met-main-container" class="flex-1 min-h-0 overflow-hidden p-6 bg-slate-50 relative flex justify-center">
-            <!-- Loader -->
-            <div id="met-loading" class="absolute inset-0 bg-slate-50 z-20 flex flex-col items-center justify-center">
-                <div class="loader mb-4"></div>
-                <p class="text-slate-500 font-medium animate-pulse">Sincronizando METRADOS con Google Sheets...</p>
-            </div>
-
             <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col flex-1 min-h-0 w-full max-w-[1600px] mx-auto">
                 <div class="overflow-x-auto overflow-y-auto flex-1 min-h-0 w-full custom-table-scroll">
                     <table class="mx-auto text-left border-collapse" style="min-width: 1600px;">
@@ -631,11 +707,20 @@
                 </div>
             </div>
         </main>
+            </section>
+        </div>
+
+        <!-- Pestañas inferiores -->
+        <nav class="bg-white border-t border-slate-200 px-4 py-2 flex items-center justify-center gap-2 shrink-0 shadow-[0_-4px_16px_rgba(15,23,42,0.06)]">
+            <button class="met-view-tab active min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="mapa">MAPA</button>
+            <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="analisis">ANÁLISIS</button>
+            <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="tabla">TABLA</button>
+        </nav>
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
-<script src="script.js?v=16"></script>
+<script src="script.js?v=17"></script>
     <script src="asistencia.js?v=1"></script>
-<script src="metrados.js?v=14"></script>
+<script src="metrados.js?v=17"></script>
 </body>
 </html>
