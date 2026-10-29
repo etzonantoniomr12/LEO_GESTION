@@ -7,6 +7,7 @@
 const METRADOS_SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
 const MET_ACUM_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/export?format=csv&gid=1620245158`;
 const ACTIVIDADES_CSV_URL = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/export?format=csv&gid=1734814133`;
+const REPORTE_FOTOS_CSV_URL_MET = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=REPORTE_FOTOS`;
 const EJES_TRAMOS_CSV_URL = 'CSV HITOS Y EJE/EJES_TRAMOS.csv';
 const HITOS_REALES_CSV_URL = 'CSV HITOS Y EJE/HITOS_REALES.csv';
 const CRS_UTM_18S_MET = '+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs';
@@ -43,6 +44,14 @@ let subBaseFiltradaMet = [];
 let subBaseValidaMet = [];
 let subBaseInvalidaMet = [];
 let tramoSubBaseMet = new Map();
+let fotosNoticiasMet = [];
+let cargaFotosNoticiasMet = null;
+let tokenNoticiasMet = 0;
+let fotosCarruselNoticiasMet = [];
+let paginaCarruselNoticiasMet = 0;
+let temporizadorCarruselNoticiasMet = null;
+const miniaturasNoticiasMet = new Map();
+const INTERVALO_CARRUSEL_NOTICIAS_MET = 7000;
 
 // ==========================================
 // SELECTORES DOM (acceso lazy)
@@ -1127,26 +1136,298 @@ function _renderizarDetalleMensualMet() {
     if (tarjeta) tarjeta.innerHTML = _htmlAnilloMet('Meta mensual', _etiquetaMesMapaMet(periodoDetalleMet), actual, metaAnual > 0 ? metaAnual / 12 : 0, unidad);
 }
 
+// ==========================================
+// NOTICIAS DEL ÚLTIMO MES
+// ==========================================
+function _calcularRankingNoticiasMet() {
+    const periodoActual = periodosDisponiblesMet.at(-1) || '';
+    const periodoAnterior = periodosDisponiblesMet.at(-2) || '';
+    if (!periodoActual) return null;
+
+    const acumulados = new Map();
+    datosMetrados.forEach(registro => {
+        const periodo = _mesClaveMapaMet(registro.fecha);
+        if (periodo !== periodoActual && periodo !== periodoAnterior) return;
+        const rango = _tramoPorKmInicialMapaMet(_numeroKmMet(registro.kmInicial));
+        if (rango?.nombre !== tramoActivoMet) return;
+        const metrado = _numeroFlexibleMapaMet(registro.metrado);
+        if (!Number.isFinite(metrado)) return;
+        const clave = _claveTextoMapaMet(registro.partida);
+        if (!acumulados.has(clave)) acumulados.set(clave, { actual: 0, anterior: 0 });
+        acumulados.get(clave)[periodo === periodoActual ? 'actual' : 'anterior'] += metrado;
+    });
+
+    const actividades = ordenActividadesMet.map((actividad, orden) => {
+        const clave = _claveTextoMapaMet(actividad);
+        const configuracion = actividadesConfigMet.get(clave);
+        const metaAnual = Number(configuracion?.metas?.[tramoActivoMet]) || 0;
+        if (metaAnual <= 0) return null;
+        const valores = acumulados.get(clave) || { actual: 0, anterior: 0 };
+        const metaMensual = metaAnual / 12;
+        const unidad = datosMetrados.find(d => _claveTextoMapaMet(d.partida) === clave)?.unidad || '';
+        return {
+            actividad,
+            clave,
+            orden,
+            actual: valores.actual,
+            anterior: valores.anterior,
+            delta: valores.actual - valores.anterior,
+            metaMensual,
+            porcentaje: valores.actual / metaMensual * 100,
+            unidad
+        };
+    }).filter(Boolean);
+
+    const mayores = [...actividades]
+        .sort((a, b) => b.porcentaje - a.porcentaje || b.actual - a.actual || a.orden - b.orden)
+        .slice(0, 5);
+    const clavesMayores = new Set(mayores.map(item => item.clave));
+    const menores = actividades
+        .filter(item => !clavesMayores.has(item.clave))
+        .sort((a, b) => a.porcentaje - b.porcentaje || a.actual - b.actual || a.orden - b.orden)
+        .slice(0, 10);
+    return { periodoActual, periodoAnterior, mayores, menores };
+}
+
+function _htmlTendenciaNoticiasMet(item) {
+    const signo = item.delta > 0 ? '↑' : item.delta < 0 ? '↓' : '→';
+    const color = item.delta > 0 ? 'text-emerald-600' : item.delta < 0 ? 'text-red-600' : 'text-slate-500';
+    const prefijo = item.delta > 0 ? '+' : '';
+    return `<span class="${color} font-extrabold whitespace-nowrap">${signo} ${prefijo}${_formatearNumeroMet(item.delta)}${item.unidad ? ` ${_escaparHtmlMet(item.unidad)}` : ''}</span>`;
+}
+
+function _htmlRankingNoticiasMet(items, tipo) {
+    if (!items.length) return '<p class="p-5 text-sm text-slate-500">No existen actividades con meta para este tramo.</p>';
+    const mayor = tipo === 'mayor';
+    return items.map((item, indice) => `<div class="met-news-rank-row">
+        <span class="met-news-rank-number ${mayor ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${indice + 1}</span>
+        <div class="min-w-0">
+            <p class="text-xs font-extrabold text-slate-800 leading-snug">${_escaparHtmlMet(item.actividad)}</p>
+            <p class="text-xs text-slate-500 mt-1">${_formatearNumeroMet(item.actual)} de ${_formatearNumeroMet(item.metaMensual)} ${_escaparHtmlMet(item.unidad)}</p>
+        </div>
+        <div class="text-right">
+            <p class="text-sm font-black ${mayor ? 'text-emerald-700' : 'text-red-700'}">${_formatearNumeroMet(item.porcentaje, 1)}%</p>
+            <p class="text-xs mt-1">${_htmlTendenciaNoticiasMet(item)}</p>
+        </div>
+    </div>`).join('');
+}
+
+async function _cargarFotosNoticiasMet() {
+    if (fotosNoticiasMet.length) return fotosNoticiasMet;
+    if (cargaFotosNoticiasMet) return cargaFotosNoticiasMet;
+    cargaFotosNoticiasMet = _leerCsvMapaMet(REPORTE_FOTOS_CSV_URL_MET, 'Hoja REPORTE_FOTOS')
+        .then(filas => {
+            fotosNoticiasMet = filas.map((filaOriginal, ordenHoja) => {
+                const fila = _filaNormalizadaMapaMet(filaOriginal);
+                const inicio = _numeroKmMet(fila.INICIO);
+                const tramoPorInicio = _tramoPorKmInicialMapaMet(inicio)?.nombre || null;
+                return {
+                    ordenHoja,
+                    fecha: String(fila.FECHA || '').trim(),
+                    driveId: String(fila.DRIVE_FILE_ID || '').trim(),
+                    actividad: String(fila.ACTIVIDAD || '').trim(),
+                    tramo: tramoPorInicio || _tramoDeclaradoMet(fila.TRAMO),
+                    tiempo: _claveTextoMapaMet(fila.TIEMPO)
+                };
+            }).filter(foto => foto.driveId && foto.actividad && foto.tramo && foto.tiempo === 'DURANTE');
+            return fotosNoticiasMet;
+        })
+        .finally(() => { cargaFotosNoticiasMet = null; });
+    return cargaFotosNoticiasMet;
+}
+
+function _seleccionarFotosNoticiasMet(ranking) {
+    const indice = new Map();
+    fotosNoticiasMet.forEach(foto => {
+        if (foto.tramo !== tramoActivoMet) return;
+        indice.set(`${foto.tramo}|${_claveTextoMapaMet(foto.actividad)}`, foto);
+    });
+    const preparar = (items, categoria) => items
+        .map((item, posicion) => ({
+            ...item,
+            categoria,
+            posicion: posicion + 1,
+            foto: item.actual > 0 ? indice.get(`${tramoActivoMet}|${item.clave}`) : null
+        }))
+        .filter(item => item.foto);
+    const mayores = preparar(ranking.mayores, 'MAYOR');
+    const menores = preparar(ranking.menores, 'MENOR');
+    const seleccion = [];
+    const cantidad = Math.max(mayores.length, menores.length);
+    for (let i = 0; i < cantidad && seleccion.length < 10; i++) {
+        if (mayores[i]) seleccion.push(mayores[i]);
+        if (seleccion.length < 10 && menores[i]) seleccion.push(menores[i]);
+    }
+    return seleccion;
+}
+
+async function _cargarMiniaturasNoticiasMet(ids) {
+    const pendientes = [...new Set(ids)].filter(id => !miniaturasNoticiasMet.has(id));
+    const servicio = typeof GAS_THUMBS_URL !== 'undefined' ? GAS_THUMBS_URL : '';
+    if (!pendientes.length || !servicio || servicio === 'PEGAR_AQUI_LA_URL_DEL_SCRIPT_MINIATURAS') return;
+    const respuesta = await fetch(servicio, { method: 'POST', body: JSON.stringify({ ids: pendientes }) });
+    const resultado = await respuesta.json();
+    if (resultado.success && resultado.data) {
+        Object.entries(resultado.data).forEach(([id, dataUrl]) => miniaturasNoticiasMet.set(id, dataUrl));
+    }
+}
+
+function _htmlTarjetaCarruselNoticiasMet(item) {
+    const mayor = item.categoria === 'MAYOR';
+    const id = encodeURIComponent(item.foto.driveId);
+    const miniatura = miniaturasNoticiasMet.get(item.foto.driveId);
+    const imagen = miniatura
+        ? `<img src="${_escaparHtmlMet(miniatura)}" loading="lazy" alt="${_escaparHtmlMet(item.actividad)}">`
+        : '<div class="h-full min-h-[220px] grid place-items-center text-sm font-semibold text-slate-300">Abrir fotografía en Drive</div>';
+    return `<a class="met-news-carousel-card block" href="https://drive.google.com/file/d/${id}/view" target="_blank" rel="noopener noreferrer">
+        ${imagen}
+        <div class="met-news-carousel-caption">
+            <div class="flex items-end justify-between gap-3">
+                <div class="min-w-0"><span class="inline-flex px-2 py-0.5 rounded-full text-xs font-black ${mayor ? 'bg-emerald-400 text-emerald-950' : 'bg-red-400 text-red-950'}">TOP ${item.categoria} ${item.posicion}</span><p class="mt-1 text-sm font-extrabold truncate">${_escaparHtmlMet(item.actividad)}</p></div>
+                <div class="text-right shrink-0"><p class="font-black">${_formatearNumeroMet(item.porcentaje, 1)}%</p><p class="text-xs text-slate-300">${_escaparHtmlMet(item.foto.fecha || 'Sin fecha')}</p></div>
+            </div>
+        </div>
+    </a>`;
+}
+
+function _cantidadPaginasCarruselNoticiasMet() {
+    return Math.ceil(fotosCarruselNoticiasMet.length / 2);
+}
+
+function _renderizarCarruselNoticiasMet() {
+    const stage = $m('met-news-carousel-stage');
+    const dots = $m('met-news-carousel-dots');
+    if (!stage || !dots) return;
+    const paginas = _cantidadPaginasCarruselNoticiasMet();
+    const anterior = $m('met-news-prev');
+    const siguiente = $m('met-news-next');
+    if (!paginas) {
+        stage.innerHTML = '<div class="h-full min-h-[220px] grid place-items-center rounded-xl border border-dashed border-slate-600 text-center text-sm text-slate-300 px-6">No se encontraron fotografías DURANTE para las actividades clasificadas.</div>';
+        dots.innerHTML = '';
+        if (anterior) anterior.disabled = true;
+        if (siguiente) siguiente.disabled = true;
+        return;
+    }
+    paginaCarruselNoticiasMet = Math.min(Math.max(paginaCarruselNoticiasMet, 0), paginas - 1);
+    const visibles = fotosCarruselNoticiasMet.slice(paginaCarruselNoticiasMet * 2, paginaCarruselNoticiasMet * 2 + 2);
+    stage.innerHTML = `<div class="met-news-carousel-pair">${visibles.map(_htmlTarjetaCarruselNoticiasMet).join('')}</div>`;
+    dots.innerHTML = Array.from({ length: paginas }, (_, indice) => `<button type="button" class="met-news-carousel-dot ${indice === paginaCarruselNoticiasMet ? 'active' : ''}" data-news-page="${indice}" aria-label="Ver grupo ${indice + 1}"></button>`).join('');
+    if (anterior) anterior.disabled = paginas <= 1;
+    if (siguiente) siguiente.disabled = paginas <= 1;
+}
+
+function _detenerCarruselNoticiasMet() {
+    if (temporizadorCarruselNoticiasMet) clearInterval(temporizadorCarruselNoticiasMet);
+    temporizadorCarruselNoticiasMet = null;
+}
+
+function _iniciarCarruselNoticiasMet() {
+    _detenerCarruselNoticiasMet();
+    if (subvistaActivaMet !== 'noticias' || _cantidadPaginasCarruselNoticiasMet() <= 1) return;
+    temporizadorCarruselNoticiasMet = setInterval(() => _cambiarPaginaCarruselNoticiasMet(1, false), INTERVALO_CARRUSEL_NOTICIAS_MET);
+}
+
+function _cambiarPaginaCarruselNoticiasMet(desplazamiento, reiniciar = true) {
+    const paginas = _cantidadPaginasCarruselNoticiasMet();
+    if (paginas <= 1) return;
+    paginaCarruselNoticiasMet = (paginaCarruselNoticiasMet + desplazamiento + paginas) % paginas;
+    _renderizarCarruselNoticiasMet();
+    if (reiniciar) _iniciarCarruselNoticiasMet();
+}
+
+function _irPaginaCarruselNoticiasMet(pagina) {
+    const paginas = _cantidadPaginasCarruselNoticiasMet();
+    if (!Number.isInteger(pagina) || pagina < 0 || pagina >= paginas) return;
+    paginaCarruselNoticiasMet = pagina;
+    _renderizarCarruselNoticiasMet();
+    _iniciarCarruselNoticiasMet();
+}
+
+async function actualizarNoticiasMet() {
+    if (subvistaActivaMet !== 'noticias') return;
+    _detenerCarruselNoticiasMet();
+    const token = ++tokenNoticiasMet;
+    const loading = $m('met-news-loading');
+    const content = $m('met-news-content');
+    const empty = $m('met-news-empty');
+    loading?.classList.remove('hidden');
+    loading?.classList.add('grid');
+    content?.classList.add('hidden');
+    empty?.classList.add('hidden');
+    empty?.classList.remove('grid');
+
+    const ranking = _calcularRankingNoticiasMet();
+    if (!ranking || (!ranking.mayores.length && !ranking.menores.length)) {
+        fotosCarruselNoticiasMet = [];
+        loading?.classList.add('hidden');
+        loading?.classList.remove('grid');
+        if (empty) {
+            empty.innerHTML = '<div><p class="font-bold text-slate-700">Sin información para Noticias</p><p class="text-sm mt-1">Este tramo no tiene actividades con una meta anual válida.</p></div>';
+            empty.classList.remove('hidden');
+            empty.classList.add('grid');
+        }
+        return;
+    }
+
+    let errorFotos = '';
+    try {
+        await _cargarFotosNoticiasMet();
+    } catch (error) {
+        console.error('No se pudo cargar REPORTE_FOTOS para Noticias:', error);
+        errorFotos = 'No se pudieron consultar las fotografías.';
+    }
+    if (token !== tokenNoticiasMet || subvistaActivaMet !== 'noticias') return;
+
+    const seleccion = _seleccionarFotosNoticiasMet(ranking);
+    try {
+        await _cargarMiniaturasNoticiasMet(seleccion.map(item => item.foto.driveId));
+    } catch (error) {
+        console.error('No se pudieron cargar miniaturas de Noticias:', error);
+        errorFotos = 'Las fotografías pueden abrirse directamente en Drive.';
+    }
+    if (token !== tokenNoticiasMet || subvistaActivaMet !== 'noticias') return;
+
+    if ($m('met-news-tramo')) $m('met-news-tramo').textContent = tramoActivoMet;
+    if ($m('met-news-subtitle')) {
+        const anterior = ranking.periodoAnterior ? ` frente a ${_etiquetaMesMapaMet(ranking.periodoAnterior)}` : '';
+        $m('met-news-subtitle').textContent = `${_etiquetaMesMapaMet(ranking.periodoActual)}${anterior} · avance respecto a la meta mensual`;
+    }
+    if ($m('met-news-top-high')) $m('met-news-top-high').innerHTML = _htmlRankingNoticiasMet(ranking.mayores, 'mayor');
+    if ($m('met-news-top-low')) $m('met-news-top-low').innerHTML = _htmlRankingNoticiasMet(ranking.menores, 'menor');
+    fotosCarruselNoticiasMet = seleccion;
+    paginaCarruselNoticiasMet = 0;
+    _renderizarCarruselNoticiasMet();
+    if ($m('met-news-photo-note')) $m('met-news-photo-note').textContent = errorFotos;
+    loading?.classList.add('hidden');
+    loading?.classList.remove('grid');
+    content?.classList.remove('hidden');
+    _iniciarCarruselNoticiasMet();
+}
+
 function seleccionarTramoMapaMet(tramo) {
     if (!TRAMOS_MET.includes(tramo)) return;
     tramoActivoMet = tramo;
     document.querySelectorAll('.met-tramo-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tramo === tramo));
     aplicarFiltrosMet(true);
+    if (subvistaActivaMet === 'noticias') actualizarNoticiasMet();
 }
 
 function cambiarSubvistaMet(vista) {
-    if (!['mapa', 'analisis', 'tabla'].includes(vista)) return;
+    if (!['mapa', 'analisis', 'tabla', 'noticias'].includes(vista)) return;
     subvistaActivaMet = vista;
+    if (vista !== 'noticias') _detenerCarruselNoticiasMet();
     document.querySelectorAll('.met-view-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metView === vista));
-    ['mapa', 'analisis', 'tabla'].forEach(nombre => {
+    ['mapa', 'analisis', 'tabla', 'noticias'].forEach(nombre => {
         const panel = $m(`met-panel-${nombre}`);
         if (!panel) return;
         const activo = nombre === vista;
         panel.classList.toggle('hidden', !activo);
         if (nombre === 'tabla') panel.classList.toggle('flex', activo);
     });
+    $m('met-control-panel')?.classList.toggle('hidden', vista === 'noticias');
     if (vista === 'mapa') setTimeout(() => mapaMet?.invalidateSize(), 50);
     if (vista === 'analisis') actualizarAnalisisMapaMet();
+    if (vista === 'noticias') actualizarNoticiasMet();
 }
 
 function asegurarMapaMetradosVisible() {
@@ -1197,6 +1478,14 @@ function configurarEventosMet() {
         periodoDetalleMet = `${$m('met-analysis-year').value}-${evento.target.value}`;
         _renderizarDetalleMensualMet();
     });
+    $m('met-news-prev')?.addEventListener('click', () => _cambiarPaginaCarruselNoticiasMet(-1));
+    $m('met-news-next')?.addEventListener('click', () => _cambiarPaginaCarruselNoticiasMet(1));
+    $m('met-news-carousel-dots')?.addEventListener('click', evento => {
+        const boton = evento.target.closest('[data-news-page]');
+        if (boton) _irPaginaCarruselNoticiasMet(Number(boton.dataset.newsPage));
+    });
+    $m('met-news-carousel')?.addEventListener('mouseenter', _detenerCarruselNoticiasMet);
+    $m('met-news-carousel')?.addEventListener('mouseleave', _iniciarCarruselNoticiasMet);
 }
 
 // ==========================================

@@ -134,7 +134,7 @@
         /* Metrados georreferenciados */
         #met-map { width: 100%; height: 100%; min-height: 460px; background: #dbe5ee; }
         .met-tramo-tab.active { background: #0b132b; color: white; border-color: #0b132b; box-shadow: 0 5px 14px rgba(11,19,43,.22); }
-        .met-view-tab.active { color: #0b132b; border-color: #0ea5e9; background: #f0f9ff; }
+        .met-view-tab.active { background: #0b132b; color: white; border-color: #0b132b; box-shadow: 0 5px 14px rgba(11,19,43,.22); }
         .met-map-card { max-height: calc(100% - 2rem); overflow-x: hidden !important; overflow-y: auto !important; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); box-shadow: 0 12px 30px rgba(15,23,42,.18); }
         .met-month-chip input:checked + span { border-color: var(--month-color); background: color-mix(in srgb, var(--month-color) 12%, white); color: #0f172a; }
         .met-month-dot { background: var(--month-color); }
@@ -182,6 +182,25 @@
         .met-ring-center { position: relative; z-index: 1; text-align: center; max-width: 125px; }
         .met-analysis-locked { min-height: 430px; display: grid; place-items: center; border: 1px dashed #cbd5e1; border-radius: 18px; background: rgba(255,255,255,.7); color: #64748b; }
         .met-analysis-locked.hidden { display: none; }
+        .met-news-rank-row { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+        .met-news-rank-row:last-child { border-bottom: 0; }
+        .met-news-rank-number { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; font-size: 12px; font-weight: 900; }
+        .met-news-carousel-pair { height: 100%; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+        .met-news-carousel-card { position: relative; min-height: 0; overflow: hidden; border-radius: 14px; background: #1c2541; }
+        .met-news-carousel-card img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease; }
+        .met-news-carousel-card:hover img { transform: scale(1.02); }
+        .met-news-carousel-caption { position: absolute; inset: auto 0 0; padding: 34px 14px 12px; color: white; background: linear-gradient(transparent, rgba(11,19,43,.94)); }
+        .met-news-carousel-dot { width: 8px; height: 8px; border-radius: 999px; background: #64748b; transition: .2s; }
+        .met-news-carousel-dot.active { width: 24px; background: #38bdf8; }
+        .met-news-rank-scroll { min-height: 0; overflow-y: auto; }
+        @media (max-width: 767px) {
+            #met-panel-noticias { overflow-y: auto; }
+            #met-news-layout { display: block; height: auto; }
+            #met-news-carousel-card { min-height: 240px; }
+            .met-news-carousel-pair { grid-template-columns: 1fr; height: auto; }
+            .met-news-rank-grid { margin-top: 16px; }
+            .met-news-rank-scroll { max-height: 420px; }
+        }
     </style>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -688,6 +707,60 @@
                 </div>
             </section>
 
+            <!-- NOTICIAS -->
+            <section id="met-panel-noticias" class="hidden absolute inset-0 overflow-hidden bg-slate-50 p-4 md:p-5">
+                <div class="max-w-[1500px] mx-auto h-full min-h-0 flex flex-col gap-4">
+                    <div class="flex flex-wrap items-end justify-between gap-3">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-900">Noticias del tramo</h2>
+                            <p id="met-news-subtitle" class="text-sm text-slate-500">Resumen del último mes disponible y comparación mensual.</p>
+                        </div>
+                        <div id="met-news-tramo" class="px-4 py-2 rounded-full bg-[#0b132b] text-white text-xs font-bold">TRAMO I</div>
+                    </div>
+
+                    <div id="met-news-loading" class="hidden min-h-[360px] bg-white border border-slate-200 rounded-2xl shadow-sm place-items-center">
+                        <div class="text-center"><div class="loader mx-auto mb-3"></div><p class="text-sm font-semibold text-slate-500">Preparando noticias y fotografías...</p></div>
+                    </div>
+
+                    <div id="met-news-content" class="flex-1 min-h-0">
+                        <div id="met-news-layout" class="h-full min-h-0 grid grid-rows-[minmax(260px,46%)_minmax(0,54%)] gap-4">
+                            <article id="met-news-carousel" class="min-h-0 bg-[#0b132b] border border-[#1c2541] rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                                <div class="shrink-0 px-4 py-3 flex items-center justify-between gap-3 text-white border-b border-white/10">
+                                    <div><h3 class="font-extrabold">Evidencias durante la ejecución</h3><p class="text-xs text-slate-300">Avance automático · una fotografía reciente por actividad</p></div>
+                                    <div class="flex items-center gap-2">
+                                        <button id="met-news-prev" type="button" class="w-9 h-9 rounded-full border border-white/25 hover:bg-white/10 disabled:opacity-30" aria-label="Fotografías anteriores">&#10094;</button>
+                                        <button id="met-news-next" type="button" class="w-9 h-9 rounded-full border border-white/25 hover:bg-white/10 disabled:opacity-30" aria-label="Fotografías siguientes">&#10095;</button>
+                                    </div>
+                                </div>
+                                <div id="met-news-carousel-stage" class="flex-1 min-h-0 p-3"></div>
+                                <div class="shrink-0 min-h-[24px] pb-2 flex flex-col items-center justify-center gap-1">
+                                    <div id="met-news-carousel-dots" class="flex items-center justify-center gap-2"></div>
+                                    <p id="met-news-photo-note" class="text-xs text-amber-300"></p>
+                                </div>
+                            </article>
+
+                            <div class="met-news-rank-grid grid grid-cols-1 xl:grid-cols-2 gap-4 min-h-0">
+                            <article class="min-h-0 bg-white border border-emerald-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                                <div class="px-5 py-4 bg-emerald-50 border-b border-emerald-200">
+                                    <h3 class="font-extrabold text-emerald-900">Top 5 · mayor avance mensual</h3>
+                                    <p class="text-xs text-emerald-700 mt-0.5">Metrado del mes respecto a su meta mensual</p>
+                                </div>
+                                <div id="met-news-top-high" class="met-news-rank-scroll"></div>
+                            </article>
+                            <article class="min-h-0 bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                                <div class="px-5 py-4 bg-red-50 border-b border-red-200">
+                                    <h3 class="font-extrabold text-red-900">Top 10 · menor avance mensual</h3>
+                                    <p class="text-xs text-red-700 mt-0.5">Incluye actividades con avance cero</p>
+                                </div>
+                                <div id="met-news-top-low" class="met-news-rank-scroll"></div>
+                            </article>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="met-news-empty" class="hidden min-h-[360px] bg-white border border-dashed border-slate-300 rounded-2xl place-items-center text-center p-8 text-slate-500"></div>
+                </div>
+            </section>
+
             <!-- TABLA -->
             <section id="met-panel-tabla" class="hidden absolute inset-0 overflow-hidden flex-col bg-slate-50">
         <!-- Tabla Metrados -->
@@ -717,12 +790,13 @@
             <button class="met-view-tab active min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="mapa">MAPA</button>
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="analisis">ANÁLISIS</button>
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="tabla">TABLA</button>
+            <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="noticias">NOTICIAS</button>
         </nav>
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
 <script src="script.js?v=18"></script>
     <script src="asistencia.js?v=2"></script>
-<script src="metrados.js?v=27"></script>
+<script src="metrados.js?v=30"></script>
 </body>
 </html>
