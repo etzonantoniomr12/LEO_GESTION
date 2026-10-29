@@ -49,6 +49,12 @@ let ordenSeleccionMesesMet = [];
 let periodosDisponiblesMet = [];
 let filtroGeneralMet = { actividad: 'ALL', desde: '', hasta: '' };
 let periodoDetalleMet = '';
+// Subbase común creada por CARGAR. Tabla conserva todas las filas; mapa y
+// análisis consumen exclusivamente su derivación cartográfica válida.
+let subBaseFiltradaMet = [];
+let subBaseValidaMet = [];
+let subBaseInvalidaMet = [];
+let tramoSubBaseMet = new Map();
 // Conserva miniaturas recientes para evitar volver a solicitarlas al paginar,
 // ordenar o aplicar filtros. El límite protege la memoria del navegador.
 const CACHE_MINIATURAS_MET = new Map();
@@ -467,6 +473,35 @@ function _leerFiltroControlMet() {
     return { actividad, desde, hasta };
 }
 
+function _tramoDeclaradoMet(valor) {
+    const texto = String(valor || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return TRAMOS_MET.find(tramo => tramo === texto) || null;
+}
+
+function _construirSubBaseMet() {
+    subBaseFiltradaMet = datosMetrados.filter(d => {
+        const periodo = _mesClaveMapaMet(d.fecha);
+        if (periodo < filtroGeneralMet.desde || periodo > filtroGeneralMet.hasta) return false;
+        return filtroGeneralMet.actividad === 'ALL' || d.partida === filtroGeneralMet.actividad;
+    }).sort((a, b) => a.ordenHoja - b.ordenHoja);
+
+    subBaseValidaMet = [];
+    subBaseInvalidaMet = [];
+    tramoSubBaseMet = new Map();
+    subBaseFiltradaMet.forEach(original => {
+        const preparado = _prepararRegistroMapaMet(original);
+        if (preparado.ignorado) {
+            const tramo = _tramoDeclaradoMet(original.tramo);
+            subBaseInvalidaMet.push({ original, motivo: preparado.ignorado, tramo });
+            if (tramo) tramoSubBaseMet.set(original, tramo);
+            return;
+        }
+        subBaseValidaMet.push(preparado);
+        tramoSubBaseMet.set(original, preparado.tramo);
+    });
+    _numerarRegistrosMapaMet(subBaseValidaMet);
+}
+
 function _buscarControlGeneralMet() {
     const nuevo = _leerFiltroControlMet();
     const error = $m('met-control-error');
@@ -476,6 +511,7 @@ function _buscarControlGeneralMet() {
     }
     if (error) error.classList.add('hidden');
     filtroGeneralMet = nuevo;
+    _construirSubBaseMet();
     _reconstruirLeyendaMapaMet();
     periodoDetalleMet = _periodosEnFiltroMet().at(-1) || nuevo.hasta;
     aplicarFiltrosMet();
@@ -591,6 +627,7 @@ function _prepararRegistroMapaMet(d) {
     const rango = _tramoPorKmInicialMapaMet(inicio);
     if (!rango) return { ignorado: 'Sin tramo' };
     const metrado = _numeroFlexibleMapaMet(d.metrado);
+    if (!Number.isFinite(metrado)) return { ignorado: 'Metrado inválido' };
     const base = {
         original: d,
         configuracion,
@@ -620,34 +657,33 @@ function _prepararRegistroMapaMet(d) {
 }
 
 function _registrosVisiblesMapaMet() {
-    const actividad = filtroGeneralMet.actividad || 'ALL';
     const meses = _mesesSeleccionadosMapaMet();
-    const candidatos = [];
-    let ignorados = 0;
-    let seleccionados = 0;
-    datosMetrados.forEach(d => {
-        if (actividad !== 'ALL' && d.partida !== actividad) return;
-        if (!meses.has(_mesClaveMapaMet(d.fecha))) return;
-        seleccionados++;
-        const preparado = _prepararRegistroMapaMet(d);
-        if (preparado.ignorado) { ignorados++; return; }
-        candidatos.push(preparado);
-    });
-    _numerarRegistrosMapaMet(candidatos, actividad);
-    const visibles = candidatos.filter(preparado => preparado.tramo === tramoActivoMet);
-    return { visibles, ignorados, seleccionados };
+    return subBaseValidaMet.filter(registro => registro.tramo === tramoActivoMet && meses.has(registro.mes));
 }
 
-function _numerarRegistrosMapaMet(registros, actividadSeleccionada) {
-    const contadores = new Map();
-    registros.sort((a, b) => a.original.ordenHoja - b.original.ordenHoja).forEach(registro => {
-        const grupo = actividadSeleccionada === 'ALL'
-            ? registro.mes
-            : `${registro.mes}|${_claveTextoMapaMet(registro.original.partida)}`;
-        const numero = (contadores.get(grupo) || 0) + 1;
-        contadores.set(grupo, numero);
-        registro.etiqueta = numero;
+function _numerarRegistrosMapaMet(registros) {
+    _periodosEnFiltroMet().forEach(periodo => {
+        let numero = 0;
+        TRAMOS_MET.forEach(tramo => {
+            registros
+                .filter(registro => registro.mes === periodo && registro.tramo === tramo)
+                .sort((a, b) => a.original.ordenHoja - b.original.ordenHoja)
+                .forEach(registro => { registro.etiqueta = ++numero; });
+        });
     });
+}
+
+function _actualizarResumenLeyendaMet() {
+    const estado = $m('met-map-status');
+    if (!estado) return;
+    const filas = _periodosEnFiltroMet().map(periodo => {
+        const registros = subBaseValidaMet.filter(registro => registro.tramo === tramoActivoMet && registro.mes === periodo);
+        const etiquetas = registros.map(registro => registro.etiqueta).filter(Number.isFinite);
+        const rango = etiquetas.length ? `etiquetas ${Math.min(...etiquetas)}–${Math.max(...etiquetas)}` : 'sin etiquetas';
+        return `<div class="met-status-row"><b>${_escaparHtmlMet(_etiquetaMesMapaMet(periodo))}</b><span>${registros.length} válido(s) · ${rango}</span></div>`;
+    }).join('');
+    const invalidos = subBaseInvalidaMet.filter(registro => registro.tramo === tramoActivoMet).length;
+    estado.innerHTML = `<div class="font-extrabold text-slate-700 mb-1">${tramoActivoMet}</div><div class="met-map-status-list">${filas}</div>${invalidos ? `<div class="mt-1.5 pt-1.5 border-t border-slate-200 text-slate-500">${invalidos} inválido(s) conservado(s) en TABLA.</div>` : ''}`;
 }
 
 function _formatearProgMapaMet(valor) {
@@ -791,7 +827,7 @@ function renderizarMapaMet(ajustarVista = false) {
     _dibujarEjeMapaMet(ajustarVista);
     capaActividadesMet.clearLayers();
 
-    const { visibles, ignorados, seleccionados } = _registrosVisiblesMapaMet();
+    const visibles = _registrosVisiblesMapaMet();
     const puntuales = visibles.filter(r => r.tipo === 'P');
     const lineales = visibles.filter(r => r.tipo === 'L');
     const radios = [0, 17.5, 27.5, 37.5, 47.5];
@@ -843,8 +879,7 @@ function renderizarMapaMet(ajustarVista = false) {
         });
     });
 
-    const estado = $m('met-map-status');
-    if (estado) estado.textContent = `${visibles.length} visible(s) en ${tramoActivoMet}, de ${seleccionados} seleccionado(s) por actividad/mes: ${puntuales.length} puntuales y ${lineales.length} lineales.${ignorados ? ` ${ignorados} inválido(s) dentro de esta selección.` : ''}`;
+    _actualizarResumenLeyendaMet();
 }
 
 function actualizarAnalisisMapaMet() {
@@ -880,16 +915,9 @@ function _fechaPartesMet(fecha) {
 }
 
 function _datosActividadTramoMet(actividad, desde, hasta) {
-    const salida = [];
-    datosMetrados.forEach(d => {
-        if (d.partida !== actividad) return;
-        const periodo = _mesClaveMapaMet(d.fecha);
-        if (periodo < desde || periodo > hasta) return;
-        const preparado = _prepararRegistroMapaMet(d);
-        if (preparado.ignorado || preparado.tramo !== tramoActivoMet || !Number.isFinite(preparado.metrado)) return;
-        salida.push({ original: d, periodo, metrado: preparado.metrado, fecha: _fechaPartesMet(d.fecha) });
-    });
-    return salida;
+    return subBaseValidaMet
+        .filter(registro => registro.original.partida === actividad && registro.tramo === tramoActivoMet && registro.mes >= desde && registro.mes <= hasta)
+        .map(registro => ({ original: registro.original, periodo: registro.mes, metrado: registro.metrado, fecha: _fechaPartesMet(registro.original.fecha) }));
 }
 
 function _formatearNumeroMet(valor, maxDecimales = 2) {
@@ -928,6 +956,50 @@ function _renderizarGraficoMet(id, datos) {
     </div>`;
     const desplazamiento = contenedor.querySelector('.met-chart-scroller');
     requestAnimationFrame(() => { desplazamiento.scrollLeft = desplazamiento.scrollWidth; });
+}
+
+function _renderizarGraficoLinealMet(id, datos) {
+    const contenedor = $m(id);
+    if (!contenedor) return;
+    if (!datos.length) {
+        contenedor.innerHTML = '<div class="h-64 grid place-items-center text-sm text-slate-400">Sin datos para el periodo seleccionado.</div>';
+        return;
+    }
+    const valores = datos.map(d => Number(d.valor) || 0);
+    const significativos = valores.filter(valor => valor !== 0);
+    const escala = Math.max(1, ...valores);
+    const altoPlot = 233;
+    const referencias = significativos.length ? [
+        { nombre: 'Máximo', valor: Math.max(...significativos), color: '#64748b', linea: 'rgba(100,116,139,.40)' },
+        { nombre: 'Promedio', valor: significativos.reduce((a, b) => a + b, 0) / significativos.length, color: '#0284c7', linea: 'rgba(14,165,233,.65)' },
+        { nombre: 'Mínimo', valor: Math.min(...significativos), color: '#64748b', linea: 'rgba(100,116,139,.28)' }
+    ] : [];
+    const lineasReferencia = referencias.map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.linea}"></div>`).join('');
+    const resumenFijo = referencias.length
+        ? referencias.map(ref => `<div class="met-chart-stat" style="color:${ref.color}"><span>${ref.nombre}</span><span>${_formatearNumeroMet(ref.valor)}</span></div>`).join('')
+        : '<div class="met-chart-stat text-slate-500"><span>Sin datos</span></div>';
+    const divisor = Math.max(1, datos.length - 1);
+    const posiciones = datos.map((dato, indice) => ({
+        dato,
+        x: indice / divisor * 100,
+        y: (Number(dato.valor) || 0) / escala * 100,
+        indice
+    }));
+    const polilinea = posiciones.map(punto => `${punto.x},${100 - punto.y}`).join(' ');
+    const puntos = posiciones.map(punto => `<button type="button" class="met-line-point" aria-label="${_formatearNumeroMet(punto.dato.valor)}" data-value="${_formatearNumeroMet(punto.dato.valor)}" style="left:${punto.x}%;bottom:${punto.y}%"></button>`).join('');
+    const etiquetas = posiciones
+        .filter(punto => punto.indice === 0 || punto.indice === datos.length - 1 || (punto.indice + 1) % 5 === 0)
+        .map(punto => `<span class="met-line-axis-label" style="left:${punto.x}%">${_escaparHtmlMet(punto.dato.etiqueta)}</span>`).join('');
+    contenedor.innerHTML = `<div class="met-chart-shell">
+        <div class="met-chart-stats-fixed">${resumenFijo}</div>
+        <div class="met-line-chart">${lineasReferencia}
+            <div class="met-line-plot">
+                <svg class="met-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${polilinea}" fill="none" stroke="#0284c7" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                ${puntos}
+            </div>
+            <div class="met-line-axis">${etiquetas}</div>
+        </div>
+    </div>`;
 }
 
 function _htmlAnilloMet(titulo, subtitulo, actual, meta, unidad) {
@@ -1001,7 +1073,7 @@ function _renderizarDetalleMensualMet() {
         if (dia) porDia.set(dia, (porDia.get(dia) || 0) + r.metrado);
     });
     const serie = Array.from({ length: diasMes }, (_, indice) => ({ clave: indice + 1, etiqueta: String(indice + 1), valor: porDia.get(indice + 1) || 0 }));
-    _renderizarGraficoMet('met-chart-daily', serie);
+    _renderizarGraficoLinealMet('met-chart-daily', serie);
     const actual = registros.reduce((s, r) => s + r.metrado, 0);
     const config = _configActividadActualMet();
     const metaAnual = config?.metas?.[tramoActivoMet] || 0;
@@ -1085,13 +1157,8 @@ function configurarEventosMet() {
 // FILTRADO Y ORDENAMIENTO
 // ==========================================
 function aplicarFiltrosMet() {
-    filtradosMetrados = datosMetrados.filter(d => {
-        const periodo = _mesClaveMapaMet(d.fecha);
-        if (periodo < filtroGeneralMet.desde || periodo > filtroGeneralMet.hasta) return false;
-        if (filtroGeneralMet.actividad !== 'ALL' && d.partida !== filtroGeneralMet.actividad) return false;
-        const tramo = _tramoPorKmInicialMapaMet(_numeroKmMet(d.kmInicial));
-        return tramo?.nombre === tramoActivoMet;
-    });
+    // TABLA conserva también las filas inválidas para facilitar su auditoría.
+    filtradosMetrados = subBaseFiltradaMet.filter(d => tramoSubBaseMet.get(d) === tramoActivoMet);
     filtradosMetrados.sort((a, b) => a.ordenHoja - b.ordenHoja);
     renderizarTablaMet();
     renderizarMapaMet(false);

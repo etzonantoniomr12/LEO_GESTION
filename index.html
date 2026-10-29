@@ -161,6 +161,17 @@
         .met-ref-line { position: absolute; left: 8px; right: 48px; border-top: 1px dashed; pointer-events: none; }
         .met-chart-stats-fixed { position: absolute; z-index: 12; top: 14px; right: 24px; display: grid; gap: 5px; min-width: 150px; padding: 7px 9px; border: 1px solid rgba(203,213,225,.9); border-radius: 8px; background: rgba(255,255,255,.9); box-shadow: 0 3px 10px rgba(15,23,42,.08); pointer-events: none; }
         .met-chart-stat { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 700; line-height: 1.25; }
+        .met-map-status-list { display: grid; gap: 4px; max-height: 170px; overflow-y: auto; }
+        .met-status-row { display: flex; justify-content: space-between; gap: 10px; padding-bottom: 3px; border-bottom: 1px solid #e2e8f0; }
+        .met-status-row:last-child { border-bottom: 0; }
+        .met-line-chart { position: relative; height: 285px; min-width: 680px; border-right: 1px solid #64748b; border-bottom: 1px solid #94a3b8; }
+        .met-line-plot { position: absolute; inset: 16px 48px 36px 8px; }
+        .met-line-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+        .met-line-point { position: absolute; width: 12px; height: 12px; padding: 0; border: 2px solid white; border-radius: 50%; background: #0284c7; box-shadow: 0 0 0 1px #0369a1; transform: translate(-50%, 50%); cursor: help; z-index: 3; }
+        .met-line-point::after { content: attr(data-value); position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); padding: 3px 6px; border-radius: 5px; background: #0b132b; color: white; font-size: 12px; font-weight: 700; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; }
+        .met-line-point:hover::after, .met-line-point:focus-visible::after { opacity: 1; }
+        .met-line-axis { position: absolute; left: 8px; right: 48px; bottom: 0; height: 34px; }
+        .met-line-axis-label { position: absolute; bottom: 8px; transform: translateX(-50%); color: #64748b; font-size: 12px; }
         #view-metrados .text-\[9px\], #view-metrados .text-\[10px\], #view-metrados .text-\[11px\] { font-size: 12px !important; }
         .met-ring { width: 178px; height: 178px; border-radius: 50%; position: relative; display: grid; place-items: center; }
         .met-ring::after { content: ''; position: absolute; inset: 19px; border-radius: 50%; background: white; box-shadow: inset 0 0 0 1px #e2e8f0; }
@@ -652,7 +663,7 @@
                         <div class="grid grid-cols-1 xl:grid-cols-[1fr_270px] gap-5">
                             <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 min-w-0">
                                 <h3 class="font-bold text-slate-900">Metrado diario del mes</h3>
-                                <p class="text-xs text-slate-500 mb-2">Barras diarias con media, máximo y mínimo</p>
+                                <p class="text-xs text-slate-500 mb-2">Comportamiento diario mediante línea y puntos</p>
                                 <div id="met-chart-daily" class="met-chart-scroll"></div>
                             </div>
                             <div id="met-ring-month-card" class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col items-center justify-center"></div>
@@ -696,6 +707,6 @@
     <!-- Script principal -->
 <script src="script.js?v=17"></script>
     <script src="asistencia.js?v=2"></script>
-<script src="metrados.js?v=23"></script>
+<script src="metrados.js?v=24"></script>
 </body>
 </html>
