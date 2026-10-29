@@ -1,11 +1,11 @@
 // ==========================================
 // MÓDULO METRADOS
-// Espejo del módulo Registro Fotos pero para
-// la hoja METRADOS del mismo Spreadsheet.
+// Visualización acumulada desde MET ACUM.
+// La exportación continúa leyendo exclusivamente la hoja METRADOS.
 // ==========================================
 
 const METRADOS_SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
-const METRADOS_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=METRADOS`;
+const MET_ACUM_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('MET ACUM')}`;
 const ACTIVIDADES_CSV_URL = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=ACTIVIDADES`;
 const EJES_TRAMOS_CSV_URL = 'CSV HITOS Y EJE/EJES_TRAMOS.csv';
 const HITOS_REALES_CSV_URL = 'CSV HITOS Y EJE/HITOS_REALES.csv';
@@ -93,7 +93,7 @@ function cargarDatosMetrados() {
     const loading = $m('met-loading');
     if (loading) loading.classList.remove('hidden');
 
-    Papa.parse(METRADOS_CSV_URL, {
+    Papa.parse(MET_ACUM_CSV_URL, {
         download: true,
         header: true,
         skipEmptyLines: true,
@@ -121,7 +121,7 @@ function cargarDatosMetrados() {
         },
         error: () => {
             if (loading) loading.innerHTML =
-                `<p class="text-red-500 font-bold text-center p-8">Error al cargar METRADOS. Revisa la conexión o verifica que la hoja exista y sea pública.</p>`;
+                `<p class="text-red-500 font-bold text-center p-8">Error al cargar MET ACUM. Revisa la conexión o verifica que la hoja exista y sea pública.</p>`;
         }
     });
 }
@@ -260,16 +260,22 @@ function _numeroKmMet(valor) {
 // ==========================================
 // MAPA DE METRADOS
 // ==========================================
-function _leerCsvMapaMet(url) {
-    return new Promise((resolve, reject) => {
-        Papa.parse(url, {
-            download: true,
-            header: true,
-            skipEmptyLines: true,
-            complete: resultado => resolve(resultado.data || []),
-            error: error => reject(error)
-        });
-    });
+async function _leerCsvMapaMet(url, nombreFuente) {
+    let respuesta;
+    try {
+        respuesta = await fetch(url);
+    } catch (error) {
+        throw new Error(`${nombreFuente}: no se pudo establecer conexión.`);
+    }
+    if (!respuesta.ok) {
+        throw new Error(`${nombreFuente}: el servidor respondió HTTP ${respuesta.status}.`);
+    }
+    const texto = await respuesta.text();
+    const resultado = Papa.parse(texto, { header: true, skipEmptyLines: true });
+    if (!resultado.data?.length) {
+        throw new Error(`${nombreFuente}: el archivo está vacío o no tiene filas válidas.`);
+    }
+    return resultado.data;
 }
 
 function _filaNormalizadaMapaMet(fila) {
@@ -301,9 +307,9 @@ async function cargarDatosGeograficosMet() {
 
     cargaMapaMetEnCurso = (async () => {
         const [filasEje, filasHitos, filasActividades] = await Promise.all([
-            _leerCsvMapaMet(EJES_TRAMOS_CSV_URL),
-            _leerCsvMapaMet(HITOS_REALES_CSV_URL),
-            _leerCsvMapaMet(ACTIVIDADES_CSV_URL)
+            _leerCsvMapaMet(EJES_TRAMOS_CSV_URL, 'EJES_TRAMOS.csv'),
+            _leerCsvMapaMet(HITOS_REALES_CSV_URL, 'HITOS_REALES.csv'),
+            _leerCsvMapaMet(ACTIVIDADES_CSV_URL, 'Hoja ACTIVIDADES')
         ]);
 
         ejesPorTramoMet = new Map(TRAMOS_MET.map(nombre => [nombre, []]));
