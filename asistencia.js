@@ -43,7 +43,8 @@ function limpiarFiltrosAsistencia() {
     asistFiltros.cargo = 'ALL';
     asistFiltros.nombre = '';
     asistFiltros.tipo = 'OFICIAL';
-    // Mantenemos el mes para que al volver a asistencia se recuerde
+    // Al entrar nuevamente, Asistencia siempre parte del mes más reciente.
+    asistFiltros.mes = asistMeses.length > 0 ? asistMeses[asistMeses.length - 1] : '';
     guardarFiltrosAsistencia();
     
     // Resetear controles visuales (si ya están en el DOM)
@@ -106,12 +107,8 @@ async function cargarDatosAsistencia() {
         asistCambiarTipo(asistFiltros.tipo, false); // false para no renderizar aún
         
         if (asistMeses.length > 0) {
-            // Si el mes guardado existe en los datos, usar ese, sino el primero
-            if (asistFiltros.mes && asistMeses.includes(asistFiltros.mes)) {
-                seleccionarMes(asistFiltros.mes);
-            } else {
-                seleccionarMes(asistMeses[0]);
-            }
+            // Los meses están ordenados de menor a mayor: el último es el más reciente.
+            seleccionarMes(asistMeses[asistMeses.length - 1]);
         }
 
     } catch (err) {
@@ -254,6 +251,10 @@ function seleccionarMes(mesVal) {
             btn.classList.remove('bg-[#0b132b]', 'text-white', 'border-transparent', 'border-[#0b132b]', 'shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.1)]', 'z-20');
         }
     });
+
+    // Si hay muchas pestañas, llevar automáticamente la activa al área visible.
+    const tabActiva = document.querySelector(`.asist-tab-mes[data-mes="${mesVal}"]`);
+    tabActiva?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'end' });
 
     renderizarAsistencia();
 }

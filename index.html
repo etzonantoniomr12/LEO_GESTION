@@ -144,6 +144,26 @@
         .met-popup-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 9px; font-size: 11px; color: #475569; }
         .met-popup-grid b { color: #0f172a; }
         .met-popup-list { margin-top: 8px; padding-top: 7px; border-top: 1px solid #e2e8f0; max-height: 150px; overflow: auto; font-size: 11px; color: #334155; }
+        .met-sequence-label { background: #0b132b; border: 2px solid white; border-radius: 999px; color: white; font-size: 10px; font-weight: 800; padding: 1px 5px; box-shadow: 0 2px 7px rgba(15,23,42,.35); }
+        .met-sequence-label::before { display: none; }
+        .met-control-select:disabled { color: #94a3b8; background: #f1f5f9; cursor: not-allowed; }
+        .met-year-months { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 5px; }
+        .met-month-chip span { justify-content: center; }
+        .met-chart-scroll { overflow-x: auto; padding: 8px 4px 2px; }
+        .met-chart { position: relative; height: 285px; min-width: 680px; border-right: 1px solid #64748b; border-bottom: 1px solid #94a3b8; }
+        .met-bars { position: absolute; inset: 16px 48px 36px 8px; display: flex; align-items: flex-end; gap: 12px; }
+        .met-bar-col { height: 100%; min-width: 48px; flex: 1 0 48px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+        .met-bar { width: 72%; max-width: 42px; min-height: 1px; background: #38bdf8; border: 1px solid #0284c7; border-radius: 4px 4px 0 0; }
+        .met-bar-value { font-size: 9px; font-weight: 700; color: #334155; margin-bottom: 3px; }
+        .met-bar-label { position: absolute; top: calc(100% + 7px); font-size: 9px; color: #64748b; white-space: nowrap; }
+        .met-ref-line { position: absolute; left: 8px; right: 48px; border-top: 1px dashed; pointer-events: none; }
+        .met-ref-line span { position: absolute; right: 2px; bottom: 2px; font-size: 8px; background: rgba(255,255,255,.82); padding: 0 3px; }
+        .met-cumulative-svg { position: absolute; inset: 16px 48px 36px 8px; overflow: visible; pointer-events: none; }
+        .met-ring { width: 178px; height: 178px; border-radius: 50%; position: relative; display: grid; place-items: center; }
+        .met-ring::after { content: ''; position: absolute; inset: 19px; border-radius: 50%; background: white; box-shadow: inset 0 0 0 1px #e2e8f0; }
+        .met-ring-center { position: relative; z-index: 1; text-align: center; max-width: 125px; }
+        .met-analysis-locked { min-height: 430px; display: grid; place-items: center; border: 1px dashed #cbd5e1; border-radius: 18px; background: rgba(255,255,255,.7); color: #64748b; }
+        .met-analysis-locked.hidden { display: none; }
     </style>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -217,8 +237,8 @@
 <body class="bg-slate-50 text-slate-800 h-screen flex flex-col font-sans overflow-hidden">
 
     <!-- Sidebar -->
-    <div id="sidebar-overlay" class="fixed inset-0 bg-slate-900/50 z-40 hidden opacity-0 transition-opacity duration-300" onclick="toggleSidebar()"></div>
-    <div id="sidebar" class="fixed top-0 left-0 w-64 h-full bg-white shadow-2xl z-50 transform -translate-x-full transition-transform duration-300 flex flex-col">
+    <div id="sidebar-overlay" class="fixed inset-0 bg-slate-900/50 z-[1200] hidden opacity-0 transition-opacity duration-300" onclick="toggleSidebar()"></div>
+    <div id="sidebar" class="fixed top-0 left-0 w-64 h-full bg-white shadow-2xl z-[1300] transform -translate-x-full transition-transform duration-300 flex flex-col">
         <div class="p-6 border-b border-slate-200 bg-[#0b132b] flex items-center justify-between">
             <img src="LOGOS/LOGO_FINAL.png" alt="Logo" class="h-10 w-auto object-contain">
             <button onclick="toggleSidebar()" class="text-slate-300 hover:text-white">
@@ -540,6 +560,37 @@
             <button class="met-tramo-tab px-4 py-2 rounded-lg border border-slate-200 text-xs font-bold whitespace-nowrap transition" data-tramo="TRAMO VII">TRAMO VII</button>
         </div>
 
+        <!-- Filtro general compartido por Mapa, Análisis y Tabla -->
+        <div id="met-control-panel" class="bg-white border-b border-slate-200 shadow-sm px-4 py-3 shrink-0">
+            <div class="flex flex-wrap items-end gap-3 max-w-[1600px] mx-auto">
+                <div class="flex-1 min-w-[260px]">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Actividad</label>
+                    <select id="met-control-actividad" class="met-control-select w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 outline-none focus:ring-2 focus:ring-sky-500">
+                        <option value="ALL">Todas las actividades</option>
+                    </select>
+                </div>
+                <div class="w-28">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Año inicio</label>
+                    <select id="met-control-anio-inicio" class="met-control-select w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 outline-none"></select>
+                </div>
+                <div class="w-28">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Año final</label>
+                    <select id="met-control-anio-final" class="met-control-select w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 outline-none"></select>
+                </div>
+                <div class="w-32">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Mes inicial</label>
+                    <select id="met-control-mes-inicio" class="met-control-select w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 outline-none"></select>
+                </div>
+                <div class="w-32">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Mes final</label>
+                    <select id="met-control-mes-final" class="met-control-select w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50 outline-none"></select>
+                </div>
+                <button id="met-control-limpiar" class="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50">LIMPIAR</button>
+                <button id="met-control-buscar" class="px-5 py-2 rounded-lg bg-[#0b132b] text-white text-xs font-bold hover:bg-[#1c2541] disabled:opacity-40 disabled:cursor-not-allowed">BUSCAR</button>
+            </div>
+            <p id="met-control-error" class="hidden max-w-[1600px] mx-auto mt-2 text-xs font-semibold text-red-600"></p>
+        </div>
+
         <div class="relative flex-1 min-h-0 overflow-hidden">
             <div id="met-loading" class="absolute inset-0 bg-slate-50/95 z-[900] flex flex-col items-center justify-center">
                 <div class="loader mb-4"></div>
@@ -549,145 +600,71 @@
             <section id="met-panel-mapa" class="absolute inset-0">
                 <div id="met-map"></div>
 
-                <div class="met-map-card absolute top-4 left-4 z-[500] w-[310px] max-w-[calc(100%-2rem)] rounded-2xl border border-white/70 overflow-hidden">
+                <div id="met-map-controls" class="met-map-card absolute top-4 left-4 z-[500] w-[350px] max-w-[calc(100%-2rem)] rounded-2xl border border-white/70 overflow-hidden">
                     <div class="px-4 py-3 bg-[#0b132b] text-white">
-                        <p class="font-bold text-sm">Actividades ejecutadas</p>
-                        <p class="text-[10px] text-slate-300 mt-0.5">Coordenadas UTM 18L · filtros del mapa</p>
+                        <p class="font-bold text-sm">Meses visibles</p>
+                        <p class="text-[10px] text-slate-300 mt-0.5">Máximo 6 meses · colores según orden de selección</p>
                     </div>
                     <div class="p-4 space-y-3">
-                        <div>
-                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Actividad</label>
-                            <select id="met-map-actividad" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white outline-none focus:ring-2 focus:ring-sky-500">
-                                <option value="ALL">Todas las actividades</option>
-                            </select>
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Meses visibles</label>
-                                <button id="met-map-meses-todos" class="text-[10px] font-bold text-sky-700 hover:underline">Todos</button>
-                            </div>
-                            <div id="met-map-months" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto"></div>
-                        </div>
+                        <div id="met-map-months" class="space-y-3 max-h-56 overflow-y-auto pr-1"></div>
                         <div id="met-map-status" class="rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 text-[11px] text-slate-600">Preparando mapa...</div>
                     </div>
                 </div>
 
-                <div id="met-map-legend" class="met-map-card absolute top-4 right-4 z-[500] w-44 rounded-xl border border-white/70 p-3 text-[10px] text-slate-600">
-                    <p class="font-bold text-slate-800 mb-2">Nivel de metrado</p>
-                    <div class="space-y-1.5">
-                        <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>Nivel 1 · ≤ 50%</div>
-                        <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full border-2 border-sky-500"></span>Nivel 2 · ≤ 100%</div>
-                        <div class="flex items-center gap-2"><span class="w-4.5 h-4.5 rounded-full border-2 border-sky-500"></span>Nivel 3 · ≤ 200%</div>
-                        <div class="flex items-center gap-2"><span class="w-5 h-5 rounded-full border-[3px] border-sky-500"></span>Nivel 4 · > 200%</div>
-                    </div>
-                    <div id="met-map-month-legend" class="mt-3 pt-2 border-t border-slate-200 space-y-1"></div>
-                </div>
             </section>
 
             <!-- ANÁLISIS -->
             <section id="met-panel-analisis" class="hidden absolute inset-0 overflow-auto bg-slate-50 p-6">
-                <div class="max-w-6xl mx-auto">
+                <div class="max-w-[1500px] mx-auto">
                     <div class="mb-5">
                         <h2 class="text-xl font-bold text-slate-900">Análisis del tramo</h2>
-                        <p class="text-sm text-slate-500">Resumen de los mismos filtros activos en el mapa.</p>
+                        <p class="text-sm text-slate-500">Resultados de la actividad y periodo definidos en el filtro general.</p>
                     </div>
-                    <div id="met-analysis-cards" class="grid grid-cols-2 lg:grid-cols-5 gap-4"></div>
-                    <div class="mt-5 bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-                        <h3 class="font-bold text-slate-800 mb-3">Distribución por nivel</h3>
-                        <div id="met-analysis-levels" class="space-y-3"></div>
+                    <div id="met-analysis-locked" class="met-analysis-locked">
+                        <div class="text-center px-6">
+                            <div class="mx-auto mb-3 w-12 h-12 rounded-full bg-slate-100 grid place-items-center text-xl">📊</div>
+                            <p class="font-bold text-slate-700">SELECCIONAR ACTIVIDAD EN EL FILTRO</p>
+                            <p class="text-xs mt-1">El análisis se activará al elegir una actividad específica.</p>
+                        </div>
+                    </div>
+                    <div id="met-analysis-content" class="hidden space-y-6">
+                        <div class="grid grid-cols-1 xl:grid-cols-[1fr_270px] gap-5">
+                            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 min-w-0">
+                                <div class="flex flex-wrap justify-between gap-3 mb-2">
+                                    <div><h3 class="font-bold text-slate-900">Metrado mensual</h3><p class="text-xs text-slate-500">Barras mensuales y acumulado por año de gestión</p></div>
+                                    <div class="flex gap-3 text-[10px] text-slate-500"><span>■ Mensual</span><span class="text-[#0b132b]">━ Acumulado</span><span class="opacity-60">┅ Media / máximo / mínimo</span></div>
+                                </div>
+                                <div id="met-chart-monthly" class="met-chart-scroll"></div>
+                            </div>
+                            <div id="met-ring-annual-card" class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col items-center justify-center"></div>
+                        </div>
+
+                        <div class="flex flex-wrap items-end justify-between gap-3">
+                            <div><h3 class="text-lg font-bold text-slate-900">Detalle mensual</h3><p class="text-xs text-slate-500">Selecciona un mes incluido en el rango consultado.</p></div>
+                            <div class="flex gap-2">
+                                <select id="met-analysis-year" class="border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white"></select>
+                                <select id="met-analysis-month" class="border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white"></select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-[1fr_270px] gap-5">
+                            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 min-w-0">
+                                <h3 class="font-bold text-slate-900">Metrado diario del mes</h3>
+                                <p class="text-xs text-slate-500 mb-2">Barras diarias con media, máximo y mínimo</p>
+                                <div id="met-chart-daily" class="met-chart-scroll"></div>
+                            </div>
+                            <div id="met-ring-month-card" class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col items-center justify-center"></div>
+                        </div>
                     </div>
                 </div>
             </section>
 
             <!-- TABLA -->
             <section id="met-panel-tabla" class="hidden absolute inset-0 overflow-hidden flex-col bg-slate-50">
-                <select id="met-filter-tramo" class="hidden"><option value="TRAMO I">TRAMO I</option></select>
-        <!-- Panel de Filtros Metrados -->
-        <div class="bg-white border-b border-slate-200 z-10 shadow-sm relative">
-            <div class="px-6 py-4 flex flex-wrap gap-4 items-end">
-
-                <!-- FECHA -->
-                <div class="flex items-end gap-2">
-                    <div class="w-44 min-w-[176px]">
-                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Filtro Fecha</label>
-                        <select id="met-filter-fecha-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
-                            <option value="ALL">Todas las fechas</option>
-                            <option value="eq">IGUAL A:</option>
-                            <option value="gte">MAYOR IGUAL A:</option>
-                            <option value="lte">MENOR IGUAL A:</option>
-                        </select>
-                    </div>
-                    <div class="w-40 min-w-[160px]">
-                        <input type="date" id="met-filter-fecha-val" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white">
-                    </div>
-                </div>
-
-                <!-- KM INICIAL -->
-                <div class="flex items-end gap-2">
-                    <div class="w-44 min-w-[176px]">
-                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">KM Inicial</label>
-                        <select id="met-filter-kmi-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
-                            <option value="ALL">Todos</option>
-                            <option value="eq">IGUAL A:</option>
-                            <option value="gte">MAYOR IGUAL A:</option>
-                            <option value="lte">MENOR IGUAL A:</option>
-                        </select>
-                    </div>
-                    <div class="w-32 min-w-[128px]">
-                        <input type="number" id="met-filter-kmi-val" placeholder="Ej: 2000" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white">
-                    </div>
-                </div>
-
-                <!-- KM FINAL -->
-                <div class="flex items-end gap-2">
-                    <div class="w-44 min-w-[176px]">
-                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">KM Final</label>
-                        <select id="met-filter-kmf-op" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
-                            <option value="ALL">Todos</option>
-                            <option value="eq">IGUAL A:</option>
-                            <option value="gte">MAYOR IGUAL A:</option>
-                            <option value="lte">MENOR IGUAL A:</option>
-                        </select>
-                    </div>
-                    <div class="w-32 min-w-[128px]">
-                        <input type="number" id="met-filter-kmf-val" placeholder="Ej: 2500" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white">
-                    </div>
-                </div>
-
-                <!-- LADO -->
-                <div class="w-28 min-w-[112px]">
-                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Lado</label>
-                    <select id="met-filter-lado" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm cursor-pointer bg-slate-50 hover:bg-white">
-                        <option value="ALL">Todos</option>
-                    </select>
-                </div>
-
-                <!-- BUSCAR EN PARTIDA -->
-                <div class="flex-1 min-w-[220px]">
-                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Buscar en Partida</label>
-                    <div class="relative">
-                        <svg class="w-4 h-4 absolute left-3.5 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        <input type="text" id="met-filter-partida" placeholder="Ej: parchado, limpieza..." class="w-full border border-slate-300 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-[#0ea5e9] focus:border-[#0ea5e9] outline-none transition-all shadow-sm bg-slate-50 hover:bg-white focus:bg-white">
-                    </div>
-                </div>
-
-                <!-- Counter + Botón Buscar -->
-                <div class="flex items-center gap-3 mt-1">
-                    <span id="met-counter-info" class="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 whitespace-nowrap">Cargando...</span>
-                    <button id="met-btn-buscar" class="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md active:scale-95">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        <span class="text-sm">BUSCAR</span>
-                    </button>
-                </div>
-
-            </div>
-        </div>
-
         <!-- Tabla Metrados -->
-        <main id="met-main-container" class="flex-1 min-h-0 overflow-hidden p-6 bg-slate-50 relative flex justify-center">
+        <main id="met-main-container" class="flex-1 min-h-0 overflow-hidden p-4 bg-slate-50 relative flex justify-center">
             <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col flex-1 min-h-0 w-full max-w-[1600px] mx-auto">
                 <div class="overflow-x-auto overflow-y-auto flex-1 min-h-0 w-full custom-table-scroll">
-                    <table class="mx-auto text-left border-collapse" style="min-width: 1600px;">
+                    <table class="mx-auto text-left border-collapse w-full" style="min-width: 1150px;">
                         <thead class="sticky top-0 z-20 shadow-md bg-slate-50" id="met-tabla-head">
                             <!-- Generado dinámicamente por metrados.js -->
                         </thead>
@@ -697,13 +674,8 @@
                     </table>
                 </div>
 
-                <!-- Paginación -->
-                <div class="bg-slate-50/80 backdrop-blur border-t border-slate-200 px-6 py-4 flex items-center justify-between">
-                    <div class="text-sm font-medium text-slate-500" id="met-pagination-info">Cargando...</div>
-                    <div class="flex gap-2">
-                        <button id="met-btn-prev" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-semibold shadow-sm">Anterior</button>
-                        <button id="met-btn-next" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-semibold shadow-sm">Siguiente</button>
-                    </div>
+                <div class="bg-slate-50/80 border-t border-slate-200 px-6 py-3">
+                    <div class="text-sm font-medium text-slate-500" id="met-table-info">Cargando...</div>
                 </div>
             </div>
         </main>
@@ -720,7 +692,7 @@
 
     <!-- Script principal -->
 <script src="script.js?v=17"></script>
-    <script src="asistencia.js?v=1"></script>
-<script src="metrados.js?v=19"></script>
+    <script src="asistencia.js?v=2"></script>
+<script src="metrados.js?v=22"></script>
 </body>
 </html>

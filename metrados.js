@@ -5,13 +5,14 @@
 // ==========================================
 
 const METRADOS_SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
-const MET_ACUM_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('MET ACUM')}`;
-const ACTIVIDADES_CSV_URL = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=ACTIVIDADES`;
+const MET_ACUM_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/export?format=csv&gid=1620245158`;
+const ACTIVIDADES_CSV_URL = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/export?format=csv&gid=1734814133`;
 const EJES_TRAMOS_CSV_URL = 'CSV HITOS Y EJE/EJES_TRAMOS.csv';
 const HITOS_REALES_CSV_URL = 'CSV HITOS Y EJE/HITOS_REALES.csv';
 const CRS_UTM_18S_MET = '+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs';
 const TRAMOS_MET = ['TRAMO I', 'TRAMO II', 'TRAMO III', 'TRAMO IV', 'TRAMO V', 'TRAMO VI', 'TRAMO VII'];
-const COLORES_MESES_MET = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#be185d', '#4f46e5', '#65a30d', '#b45309', '#0f766e', '#7c3aed'];
+const COLORES_MESES_MET = ['#2563eb', '#eab308', '#dc2626', '#16a34a', '#9333ea', '#ea580c'];
+const MESES_NOMBRE_MET = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 // Estas son las únicas columnas que se muestran en la pantalla.  Las columnas
 // DRIVE_ID_*, NOMBRE_FOTO_* y #* se conservan solo como datos auxiliares para
@@ -44,6 +45,10 @@ let hitosPorTramoMet = new Map();
 let rangosTramoMet = [];
 let actividadesConfigMet = new Map();
 let coloresMesMet = new Map();
+let ordenSeleccionMesesMet = [];
+let periodosDisponiblesMet = [];
+let filtroGeneralMet = { actividad: 'ALL', desde: '', hasta: '' };
+let periodoDetalleMet = '';
 // Conserva miniaturas recientes para evitar volver a solicitarlas al paginar,
 // ordenar o aplicar filtros. El límite protege la memoria del navegador.
 const CACHE_MINIATURAS_MET = new Map();
@@ -67,23 +72,9 @@ function inicializarMetrados() {
 }
 
 function limpiarFiltrosMetrados() {
-    criteriosMet = [];
-    renderSortUIMet();
-    ['met-filter-fecha-op','met-filter-kmi-op','met-filter-kmf-op'].forEach(id => {
-        const el = $m(id); if (el) el.value = 'ALL';
-    });
-    ['met-filter-fecha-val','met-filter-kmi-val','met-filter-kmf-val','met-filter-partida'].forEach(id => {
-        const el = $m(id); if (el) el.value = '';
-    });
-    const filtroLado = $m('met-filter-lado');
-    if (filtroLado) filtroLado.value = 'ALL';
     tramoActivoMet = 'TRAMO I';
-    const filtroTramo = $m('met-filter-tramo');
-    if (filtroTramo) filtroTramo.value = tramoActivoMet;
     document.querySelectorAll('.met-tramo-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tramo === tramoActivoMet));
-    const selActividad = $m('met-map-actividad');
-    if (selActividad) selActividad.value = 'ALL';
-    document.querySelectorAll('#met-map-months input[type="checkbox"]').forEach(input => { input.checked = true; });
+    if (datosMapaMetCargados) _establecerFiltroPredeterminadoMet(true);
 }
 
 // ==========================================
@@ -107,8 +98,6 @@ function cargarDatosMetrados() {
             filtradosMetrados = [...datosMetrados];
             metradosCargados  = true;
 
-            poblarSelectoresMet();
-            aplicarFiltrosMet();
             try {
                 await cargarDatosGeograficosMet();
             } catch (error) {
@@ -281,7 +270,7 @@ async function _leerCsvMapaMet(url, nombreFuente) {
 function _filaNormalizadaMapaMet(fila) {
     const salida = {};
     Object.entries(fila || {}).forEach(([clave, valor]) => {
-        salida[String(clave).replace(/^\uFEFF/, '').trim().toUpperCase()] = valor;
+        salida[String(clave).replace(/^\uFEFF/, '').trim().toUpperCase().replace(/\s+/g, ' ')] = valor;
     });
     return salida;
 }
@@ -294,8 +283,16 @@ function _claveTextoMapaMet(valor) {
 
 function _numeroFlexibleMapaMet(valor) {
     if (typeof valor === 'number') return valor;
-    const texto = String(valor ?? '').trim().replace(/\s/g, '').replace(',', '.');
-    return texto === '' ? NaN : Number(texto);
+    let texto = String(valor ?? '').trim().replace(/\s/g, '');
+    if (texto === '') return NaN;
+    if (texto.includes(',') && texto.includes('.')) {
+        texto = texto.lastIndexOf('.') > texto.lastIndexOf(',')
+            ? texto.replace(/,/g, '')
+            : texto.replace(/\./g, '').replace(',', '.');
+    } else if (texto.includes(',')) {
+        texto = /^-?\d{1,3}(,\d{3})+$/.test(texto) ? texto.replace(/,/g, '') : texto.replace(',', '.');
+    }
+    return Number(texto);
 }
 
 async function cargarDatosGeograficosMet() {
@@ -355,15 +352,22 @@ async function cargarDatosGeograficosMet() {
             const fila = _filaNormalizadaMapaMet(filaOriginal);
             const partida = String(fila.PARTIDA || '').trim();
             const tipo = String(fila.TIPO || '').trim().toUpperCase();
-            const limite = _numeroFlexibleMapaMet(fila.VAL_MAXIMO ?? fila['VALOR MAXIMO']);
+            const limite = _numeroFlexibleMapaMet(
+                fila.VAL_MAXIMO ?? fila['VAL_MAXIMO DIARIO'] ?? fila['VALOR MAXIMO']
+            );
+            const metas = {};
+            TRAMOS_MET.forEach((nombreTramo, indice) => {
+                const valorMeta = _numeroFlexibleMapaMet(fila[`TRAMO ${indice + 1}`]);
+                metas[nombreTramo] = Number.isFinite(valorMeta) ? valorMeta : 0;
+            });
             if (partida && (tipo === 'P' || tipo === 'L') && Number.isFinite(limite) && limite > 0) {
-                actividadesConfigMet.set(_claveTextoMapaMet(partida), { partida, tipo, limite });
+                actividadesConfigMet.set(_claveTextoMapaMet(partida), { partida, tipo, limite, metas });
             }
         });
         if (!actividadesConfigMet.size) throw new Error('La hoja ACTIVIDADES no contiene configuraciones válidas.');
 
         datosMapaMetCargados = true;
-        _poblarFiltrosMapaMet();
+        _inicializarControlGeneralMet();
         _crearMapaMetrados();
         renderizarMapaMet(true);
         actualizarAnalisisMapaMet();
@@ -378,7 +382,7 @@ async function cargarDatosGeograficosMet() {
 
 function _crearMapaMetrados() {
     if (mapaMet || typeof L === 'undefined') return;
-    mapaMet = L.map('met-map', { preferCanvas: true, zoomControl: true });
+    mapaMet = L.map('met-map', { preferCanvas: true, zoomControl: false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 20,
         attribution: '&copy; OpenStreetMap'
@@ -386,6 +390,7 @@ function _crearMapaMetrados() {
     L.control.scale({ imperial: false, position: 'bottomright' }).addTo(mapaMet);
     capaEjeMet = L.layerGroup().addTo(mapaMet);
     capaActividadesMet = L.layerGroup().addTo(mapaMet);
+    L.control.zoom({ position: 'bottomleft' }).addTo(mapaMet);
     mapaMet.setView([-13.5, -74.5], 7);
 }
 
@@ -413,41 +418,123 @@ function _etiquetaMesMapaMet(clave) {
         .format(new Date(Date.UTC(anio, mes - 1, 1))).replace('.', '');
 }
 
-function _poblarFiltrosMapaMet() {
-    const selector = $m('met-map-actividad');
-    if (selector) {
-        const anterior = selector.value;
+function _inicializarControlGeneralMet() {
+    periodosDisponiblesMet = [...new Set(datosMetrados.map(d => _mesClaveMapaMet(d.fecha)).filter(mes => mes !== 'SIN FECHA'))].sort();
+    const selectorActividad = $m('met-control-actividad');
+    if (selectorActividad) {
         const partidas = [...new Set(datosMetrados.map(d => d.partida).filter(p => actividadesConfigMet.has(_claveTextoMapaMet(p))))]
             .sort((a, b) => a.localeCompare(b, 'es'));
-        selector.innerHTML = '<option value="ALL">Todas las actividades</option>' + partidas
+        selectorActividad.innerHTML = '<option value="ALL">Todas las actividades</option>' + partidas
             .map(p => `<option value="${_escaparHtmlMet(p)}">${_escaparHtmlMet(p)}</option>`).join('');
-        selector.value = partidas.includes(anterior) ? anterior : 'ALL';
     }
-
-    const meses = [...new Set(datosMetrados.map(d => _mesClaveMapaMet(d.fecha)))].sort();
-    coloresMesMet = new Map(meses.map((mes, indice) => [mes, COLORES_MESES_MET[indice % COLORES_MESES_MET.length]]));
-    const contenedor = $m('met-map-months');
-    if (contenedor) {
-        contenedor.innerHTML = meses.map(mes => {
-            const color = coloresMesMet.get(mes);
-            return `<label class="met-month-chip cursor-pointer" style="--month-color:${color}">
-                <input type="checkbox" class="sr-only" value="${mes}" checked>
-                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border border-slate-200 text-[10px] font-semibold transition">
-                    <i class="met-month-dot w-2 h-2 rounded-full"></i>${_etiquetaMesMapaMet(mes)}
-                </span>
-            </label>`;
-        }).join('');
-    }
-    _actualizarLeyendaMesesMapaMet();
+    const anios = [...new Set(periodosDisponiblesMet.map(periodo => periodo.slice(0, 4)))];
+    ['met-control-anio-inicio', 'met-control-anio-final'].forEach(id => {
+        const selector = $m(id);
+        if (selector) selector.innerHTML = anios.map(anio => `<option value="${anio}">${anio}</option>`).join('');
+    });
+    _establecerFiltroPredeterminadoMet(true);
 }
 
-function _actualizarLeyendaMesesMapaMet() {
-    const leyenda = $m('met-map-month-legend');
-    if (!leyenda) return;
-    const seleccionados = _mesesSeleccionadosMapaMet();
-    leyenda.innerHTML = [...seleccionados].map(mes => `<div class="flex items-center gap-2">
-        <span class="w-2.5 h-2.5 rounded-full" style="background:${coloresMesMet.get(mes) || '#2563eb'}"></span>${_etiquetaMesMapaMet(mes)}
+function _mesesDisponiblesAnioMet(anio) {
+    return periodosDisponiblesMet.filter(periodo => periodo.startsWith(`${anio}-`)).map(periodo => periodo.slice(5));
+}
+
+function _rellenarMesesControlMet(tipo, preferido = '') {
+    const anio = $m(`met-control-anio-${tipo}`)?.value || '';
+    const selector = $m(`met-control-mes-${tipo}`);
+    if (!selector) return;
+    const meses = _mesesDisponiblesAnioMet(anio);
+    selector.innerHTML = meses.map(mes => `<option value="${mes}">${MESES_NOMBRE_MET[Number(mes) - 1]}</option>`).join('');
+    selector.value = meses.includes(preferido) ? preferido : (tipo === 'inicio' ? meses[0] : meses[meses.length - 1]);
+}
+
+function _establecerFiltroPredeterminadoMet(ejecutar = false) {
+    if (!periodosDisponiblesMet.length) return;
+    const ultimo = periodosDisponiblesMet[periodosDisponiblesMet.length - 1];
+    const [anio, mes] = ultimo.split('-');
+    if ($m('met-control-actividad')) $m('met-control-actividad').value = 'ALL';
+    if ($m('met-control-anio-inicio')) $m('met-control-anio-inicio').value = anio;
+    if ($m('met-control-anio-final')) $m('met-control-anio-final').value = anio;
+    _rellenarMesesControlMet('inicio', mes);
+    _rellenarMesesControlMet('final', mes);
+    if (ejecutar) _buscarControlGeneralMet();
+}
+
+function _leerFiltroControlMet() {
+    const actividad = $m('met-control-actividad')?.value || 'ALL';
+    const desde = `${$m('met-control-anio-inicio')?.value || ''}-${$m('met-control-mes-inicio')?.value || ''}`;
+    const hasta = `${$m('met-control-anio-final')?.value || ''}-${$m('met-control-mes-final')?.value || ''}`;
+    return { actividad, desde, hasta };
+}
+
+function _buscarControlGeneralMet() {
+    const nuevo = _leerFiltroControlMet();
+    const error = $m('met-control-error');
+    if (!/^\d{4}-\d{2}$/.test(nuevo.desde) || !/^\d{4}-\d{2}$/.test(nuevo.hasta) || nuevo.desde > nuevo.hasta) {
+        if (error) { error.textContent = 'El periodo final no puede ser anterior al periodo inicial.'; error.classList.remove('hidden'); }
+        return;
+    }
+    if (error) error.classList.add('hidden');
+    filtroGeneralMet = nuevo;
+    _reconstruirLeyendaMapaMet();
+    periodoDetalleMet = _periodosEnFiltroMet().at(-1) || nuevo.hasta;
+    aplicarFiltrosMet();
+}
+
+function _periodosEnFiltroMet() {
+    return periodosDisponiblesMet.filter(periodo => periodo >= filtroGeneralMet.desde && periodo <= filtroGeneralMet.hasta);
+}
+
+function _reconstruirLeyendaMapaMet() {
+    const periodos = _periodosEnFiltroMet();
+    const ultimo = periodos[periodos.length - 1];
+    ordenSeleccionMesesMet = ultimo ? [ultimo] : [];
+    coloresMesMet = new Map(ultimo ? [[ultimo, COLORES_MESES_MET[0]]] : []);
+    const porAnio = new Map();
+    periodos.forEach(periodo => {
+        const anio = periodo.slice(0, 4);
+        if (!porAnio.has(anio)) porAnio.set(anio, []);
+        porAnio.get(anio).push(periodo);
+    });
+    const contenedor = $m('met-map-months');
+    if (!contenedor) return;
+    contenedor.innerHTML = [...porAnio.entries()].map(([anio, meses]) => `<div>
+        <p class="text-[10px] font-extrabold text-slate-700 mb-1.5">${anio}</p>
+        <div class="met-year-months">${meses.map(periodo => {
+            const mes = periodo.slice(5);
+            const activo = periodo === ultimo;
+            const color = activo ? COLORES_MESES_MET[0] : '#94a3b8';
+            return `<label class="met-month-chip cursor-pointer" style="--month-color:${color}">
+                <input type="checkbox" class="sr-only" value="${periodo}" ${activo ? 'checked' : ''}>
+                <span class="inline-flex items-center gap-1 px-1.5 py-1 rounded-full border border-slate-200 text-[9px] font-semibold transition">
+                    <i class="met-month-dot w-2 h-2 rounded-full"></i>${MESES_NOMBRE_MET[Number(mes) - 1].slice(0, 3)}
+                </span>
+            </label>`;
+        }).join('')}</div>
     </div>`).join('');
+}
+
+function _cambiarMesVisibleMet(input) {
+    const periodo = input.value;
+    if (input.checked) {
+        if (ordenSeleccionMesesMet.length >= 6) {
+            input.checked = false;
+            const estado = $m('met-map-status');
+            if (estado) estado.textContent = 'Puede mostrar como máximo 6 meses simultáneamente.';
+            return;
+        }
+        if (!ordenSeleccionMesesMet.includes(periodo)) ordenSeleccionMesesMet.push(periodo);
+        const usados = new Set(coloresMesMet.values());
+        coloresMesMet.set(periodo, COLORES_MESES_MET.find(color => !usados.has(color)) || COLORES_MESES_MET[0]);
+    } else {
+        ordenSeleccionMesesMet = ordenSeleccionMesesMet.filter(valor => valor !== periodo);
+        coloresMesMet.delete(periodo);
+    }
+    document.querySelectorAll('#met-map-months input').forEach(entrada => {
+        const etiqueta = entrada.closest('label');
+        if (etiqueta) etiqueta.style.setProperty('--month-color', entrada.checked ? (_colorMesMapaMet(entrada.value)) : '#94a3b8');
+    });
+    renderizarMapaMet(false);
 }
 
 function _mesesSeleccionadosMapaMet() {
@@ -533,19 +620,34 @@ function _prepararRegistroMapaMet(d) {
 }
 
 function _registrosVisiblesMapaMet() {
-    const actividad = $m('met-map-actividad')?.value || 'ALL';
+    const actividad = filtroGeneralMet.actividad || 'ALL';
     const meses = _mesesSeleccionadosMapaMet();
-    const visibles = [];
+    const candidatos = [];
     let ignorados = 0;
+    let seleccionados = 0;
     datosMetrados.forEach(d => {
+        if (actividad !== 'ALL' && d.partida !== actividad) return;
+        if (!meses.has(_mesClaveMapaMet(d.fecha))) return;
+        seleccionados++;
         const preparado = _prepararRegistroMapaMet(d);
         if (preparado.ignorado) { ignorados++; return; }
-        if (preparado.tramo !== tramoActivoMet) return;
-        if (actividad !== 'ALL' && d.partida !== actividad) return;
-        if (!meses.has(preparado.mes)) return;
-        visibles.push(preparado);
+        candidatos.push(preparado);
     });
-    return { visibles, ignorados };
+    _numerarRegistrosMapaMet(candidatos, actividad);
+    const visibles = candidatos.filter(preparado => preparado.tramo === tramoActivoMet);
+    return { visibles, ignorados, seleccionados };
+}
+
+function _numerarRegistrosMapaMet(registros, actividadSeleccionada) {
+    const contadores = new Map();
+    registros.sort((a, b) => a.original.ordenHoja - b.original.ordenHoja).forEach(registro => {
+        const grupo = actividadSeleccionada === 'ALL'
+            ? registro.mes
+            : `${registro.mes}|${_claveTextoMapaMet(registro.original.partida)}`;
+        const numero = (contadores.get(grupo) || 0) + 1;
+        contadores.set(grupo, numero);
+        registro.etiqueta = numero;
+    });
 }
 
 function _formatearProgMapaMet(valor) {
@@ -636,31 +738,33 @@ function _asignarCarrilesMapaMet(lineales) {
     return resultado;
 }
 
-function _popupLineaMapaMet(registro, lado) {
+function _popupLineaMapaMet(registro) {
     const d = registro.original;
-    const recorte = registro.fin > registro.finUsado ? `<div><b>Final dibujado</b></div><div>${_formatearProgMapaMet(registro.finUsado)} (límite del tramo)</div>` : '';
-    return `<div class="met-popup-title">${_escaparHtmlMet(d.partida)}</div>
+    return `<div class="met-popup-title">#${registro.etiqueta} · ${_escaparHtmlMet(d.partida)}</div>
         <div class="met-popup-grid">
             <div><b>Fecha</b></div><div>${_escaparHtmlMet(d.fecha || '-')}</div>
             <div><b>Tramo</b></div><div>${registro.tramo}</div>
-            <div><b>Tipo</b></div><div>Lineal · ${lado}</div>
-            <div><b>KM original</b></div><div>${_formatearProgMapaMet(registro.inicio)} – ${_formatearProgMapaMet(registro.fin)}</div>
-            <div><b>Hitos usados</b></div><div>${_formatearProgMapaMet(registro.hitoInicio.hito)} – ${_formatearProgMapaMet(registro.hitoFinal.hito)}</div>
-            ${recorte}
-            <div><b>Metrado</b></div><div>${_escaparHtmlMet(d.metrado)} ${_escaparHtmlMet(d.unidad)} · Nivel ${registro.nivel}</div>
+            <div><b>KM inicio – final</b></div><div>${_formatearProgMapaMet(registro.inicio)} – ${_formatearProgMapaMet(registro.fin)}</div>
+            <div><b>Metrado</b></div><div>${_escaparHtmlMet(d.metrado)} ${_escaparHtmlMet(d.unidad)}</div>
         </div>`;
 }
 
 function _popupPuntosMapaMet(grupo) {
     const primero = grupo[0];
-    const filas = grupo.map(registro => `<div class="mb-1"><b>${_escaparHtmlMet(registro.original.fecha || '-')}</b> · ${_escaparHtmlMet(registro.original.metrado)} ${_escaparHtmlMet(registro.original.unidad)} · KM ${_formatearProgMapaMet(registro.inicio)}–${_formatearProgMapaMet(registro.fin)}</div>`).join('');
-    return `<div class="met-popup-title">${_escaparHtmlMet(primero.original.partida)}</div>
-        <div class="met-popup-grid">
-            <div><b>Tramo</b></div><div>${primero.tramo}</div>
-            <div><b>Hito dibujado</b></div><div>${_formatearProgMapaMet(primero.hito.hito)}</div>
-            <div><b>Mes</b></div><div>${_etiquetaMesMapaMet(primero.mes)}</div>
-            <div><b>Registros</b></div><div>${grupo.length}</div>
-        </div><div class="met-popup-list">${filas}</div>`;
+    const actividades = new Set(grupo.map(registro => registro.original.partida));
+    const titulo = actividades.size === 1 ? primero.original.partida : 'ACTIVIDADES PUNTUALES';
+    const filas = grupo.map(registro => {
+        const d = registro.original;
+        const actividad = actividades.size > 1 ? `<div class="font-bold text-slate-900 mb-1">${_escaparHtmlMet(d.partida)}</div>` : '';
+        return `<div class="mb-2 last:mb-0"><b>#${registro.etiqueta}</b>${actividad}
+            <div class="met-popup-grid">
+                <div><b>Fecha</b></div><div>${_escaparHtmlMet(d.fecha || '-')}</div>
+                <div><b>Tramo</b></div><div>${registro.tramo}</div>
+                <div><b>KM inicio – final</b></div><div>${_formatearProgMapaMet(registro.inicio)} – ${_formatearProgMapaMet(registro.fin)}</div>
+                <div><b>Metrado</b></div><div>${_escaparHtmlMet(d.metrado)} ${_escaparHtmlMet(d.unidad)}</div>
+            </div></div>`;
+    }).join('');
+    return `<div class="met-popup-title">${_escaparHtmlMet(titulo)}</div><div class="met-popup-list">${filas}</div>`;
 }
 
 function _dibujarEjeMapaMet(ajustarVista) {
@@ -684,28 +788,32 @@ function _dibujarEjeMapaMet(ajustarVista) {
 
 function renderizarMapaMet(ajustarVista = false) {
     if (!datosMapaMetCargados || !mapaMet || !capaActividadesMet) return;
-    _actualizarLeyendaMesesMapaMet();
     _dibujarEjeMapaMet(ajustarVista);
     capaActividadesMet.clearLayers();
 
-    const { visibles, ignorados } = _registrosVisiblesMapaMet();
+    const { visibles, ignorados, seleccionados } = _registrosVisiblesMapaMet();
     const puntuales = visibles.filter(r => r.tipo === 'P');
     const lineales = visibles.filter(r => r.tipo === 'L');
-    const radios = [0, 7, 11, 15, 19];
-    const grosores = [0, 4, 6, 8, 10];
+    const radios = [0, 17.5, 27.5, 37.5, 47.5];
 
     _asignarCarrilesMapaMet(lineales).forEach(elemento => {
         const registro = elemento.registro;
         const puntos = _desplazarSegmentoMapaMet(_segmentoEjeMapaMet(registro), elemento.lado, elemento.carril);
         const latLngs = puntos.map(p => _utmALatLngMapaMet(p.este, p.norte)).filter(Boolean);
         if (latLngs.length < 2) return;
-        L.polyline(latLngs, {
+        const linea = L.polyline(latLngs, {
             color: _colorMesMapaMet(registro.mes),
-            weight: grosores[registro.nivel],
+            weight: 8,
             opacity: 0.84,
             lineCap: 'round',
             lineJoin: 'round'
-        }).bindPopup(_popupLineaMapaMet(registro, elemento.lado)).addTo(capaActividadesMet);
+        }).bindPopup(_popupLineaMapaMet(registro)).addTo(capaActividadesMet);
+        linea.bindTooltip(String(registro.etiqueta), {
+            permanent: true,
+            direction: 'center',
+            className: 'met-sequence-label',
+            opacity: 1
+        });
     });
 
     const gruposPuntuales = new Map();
@@ -720,46 +828,212 @@ function renderizarMapaMet(ajustarVista = false) {
         const color = _colorMesMapaMet(grupo[0].mes);
         const latLng = _utmALatLngMapaMet(hito.este, hito.norte);
         if (!latLng) return;
-        L.circleMarker(latLng, {
+        const circulo = L.circleMarker(latLng, {
             radius: radios[nivel],
             color,
             weight: nivel === 4 ? 3 : 2,
             fillColor: color,
             fillOpacity: 0.42
         }).bindPopup(_popupPuntosMapaMet(grupo)).addTo(capaActividadesMet);
+        circulo.bindTooltip(grupo.map(registro => registro.etiqueta).join(', '), {
+            permanent: true,
+            direction: 'center',
+            className: 'met-sequence-label',
+            opacity: 1
+        });
     });
 
     const estado = $m('met-map-status');
-    if (estado) estado.textContent = `${visibles.length} registro(s): ${puntuales.length} puntuales y ${lineales.length} lineales. ${ignorados ? `${ignorados} ignorados por datos inválidos.` : ''}`.trim();
+    if (estado) estado.textContent = `${visibles.length} visible(s) en ${tramoActivoMet}, de ${seleccionados} seleccionado(s) por actividad/mes: ${puntuales.length} puntuales y ${lineales.length} lineales.${ignorados ? ` ${ignorados} inválido(s) dentro de esta selección.` : ''}`;
 }
 
 function actualizarAnalisisMapaMet() {
     if (!datosMapaMetCargados) return;
-    const { visibles, ignorados } = _registrosVisiblesMapaMet();
-    const puntuales = visibles.filter(r => r.tipo === 'P').length;
-    const lineales = visibles.filter(r => r.tipo === 'L').length;
-    const partidas = new Set(visibles.map(r => r.original.partida).filter(Boolean)).size;
-    const niveles = [1, 2, 3, 4].map(nivel => visibles.filter(r => r.nivel === nivel).length);
-    const tarjetas = [
-        ['Registros', visibles.length],
-        ['Puntuales', puntuales],
-        ['Lineales', lineales],
-        ['Partidas', partidas],
-        ['Ignorados', ignorados]
-    ];
-    const cards = $m('met-analysis-cards');
-    if (cards) cards.innerHTML = tarjetas.map(([titulo, valor]) => `<div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm"><p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">${titulo}</p><p class="text-2xl font-extrabold text-slate-900 mt-1">${valor}</p></div>`).join('');
-    const max = Math.max(1, ...niveles);
-    const contenedor = $m('met-analysis-levels');
-    if (contenedor) contenedor.innerHTML = niveles.map((cantidad, indice) => `<div class="grid grid-cols-[70px_1fr_45px] items-center gap-3 text-xs"><span class="font-bold text-slate-600">Nivel ${indice + 1}</span><div class="h-3 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full bg-sky-600" style="width:${cantidad / max * 100}%"></div></div><span class="text-right font-bold text-slate-700">${cantidad}</span></div>`).join('');
+    const bloqueado = $m('met-analysis-locked');
+    const contenido = $m('met-analysis-content');
+    if (filtroGeneralMet.actividad === 'ALL') {
+        bloqueado?.classList.remove('hidden');
+        contenido?.classList.add('hidden');
+        return;
+    }
+    bloqueado?.classList.add('hidden');
+    contenido?.classList.remove('hidden');
+
+    const periodos = _periodosEnFiltroMet();
+    const serie = periodos.map(periodo => {
+        const mensual = _datosActividadTramoMet(filtroGeneralMet.actividad, periodo, periodo)
+            .reduce((suma, registro) => suma + registro.metrado, 0);
+        const inicioGestion = _inicioGestionPeriodoMet(periodo);
+        const acumulado = _datosActividadTramoMet(filtroGeneralMet.actividad, inicioGestion, periodo)
+            .reduce((suma, registro) => suma + registro.metrado, 0);
+        return { clave: periodo, etiqueta: _etiquetaMesMapaMet(periodo), valor: mensual, acumulado, gestion: inicioGestion.slice(0, 4) };
+    });
+    _renderizarGraficoMet('met-chart-monthly', serie, true);
+    _renderizarAnilloAnualMet();
+    _poblarDetalleAnalisisMet();
+    _renderizarDetalleMensualMet();
+}
+
+function _fechaPartesMet(fecha) {
+    const texto = String(fecha || '').trim();
+    let m = texto.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+    if (m) return { dia: Number(m[1]), mes: Number(m[2]), anio: Number(m[3]) };
+    m = texto.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+    return m ? { dia: Number(m[3]), mes: Number(m[2]), anio: Number(m[1]) } : null;
+}
+
+function _datosActividadTramoMet(actividad, desde, hasta) {
+    const salida = [];
+    datosMetrados.forEach(d => {
+        if (d.partida !== actividad) return;
+        const periodo = _mesClaveMapaMet(d.fecha);
+        if (periodo < desde || periodo > hasta) return;
+        const preparado = _prepararRegistroMapaMet(d);
+        if (preparado.ignorado || preparado.tramo !== tramoActivoMet || !Number.isFinite(preparado.metrado)) return;
+        salida.push({ original: d, periodo, metrado: preparado.metrado, fecha: _fechaPartesMet(d.fecha) });
+    });
+    return salida;
+}
+
+function _inicioGestionPeriodoMet(periodo) {
+    const [anio, mes] = periodo.split('-').map(Number);
+    const inicio = mes >= 9 ? anio : anio - 1;
+    return `${inicio}-09`;
+}
+
+function _finGestionPeriodoMet(periodo) {
+    const inicio = Number(_inicioGestionPeriodoMet(periodo).slice(0, 4));
+    return `${inicio + 1}-08`;
+}
+
+function _formatearNumeroMet(valor, maxDecimales = 2) {
+    return Number(valor || 0).toLocaleString('es-PE', { maximumFractionDigits: maxDecimales });
+}
+
+function _renderizarGraficoMet(id, datos, mostrarAcumulado) {
+    const contenedor = $m(id);
+    if (!contenedor) return;
+    if (!datos.length) {
+        contenedor.innerHTML = '<div class="h-64 grid place-items-center text-sm text-slate-400">Sin datos para el periodo seleccionado.</div>';
+        return;
+    }
+    const valores = datos.map(d => d.valor);
+    const maximo = Math.max(0, ...valores);
+    const minimo = Math.min(...valores);
+    const media = valores.reduce((a, b) => a + b, 0) / valores.length;
+    const escala = Math.max(1, maximo);
+    const ancho = Math.max(680, datos.length * 70);
+    const altoPlot = 233;
+    const referencias = [
+        { nombre: 'Máx.', valor: maximo, color: 'rgba(100,116,139,.40)' },
+        { nombre: 'Media', valor: media, color: 'rgba(14,165,233,.65)' },
+        { nombre: 'Mín.', valor: minimo, color: 'rgba(100,116,139,.28)' }
+    ].map(ref => `<div class="met-ref-line" style="bottom:${36 + (ref.valor / escala) * altoPlot}px;border-color:${ref.color}"><span style="color:${ref.color}">${ref.nombre} ${_formatearNumeroMet(ref.valor)}</span></div>`).join('');
+
+    let lineas = '';
+    let maxAcumulado = 0;
+    if (mostrarAcumulado) {
+        maxAcumulado = Math.max(1, ...datos.map(d => d.acumulado || 0));
+        const grupos = new Map();
+        datos.forEach((d, i) => {
+            if (!grupos.has(d.gestion)) grupos.set(d.gestion, []);
+            grupos.get(d.gestion).push(`${(i + .5) * 60},${altoPlot - ((d.acumulado || 0) / maxAcumulado) * altoPlot}`);
+        });
+        lineas = `<svg class="met-cumulative-svg" viewBox="0 0 ${datos.length * 60} ${altoPlot}" preserveAspectRatio="none">${[...grupos.values()].map(puntos => `<polyline points="${puntos.join(' ')}" fill="none" stroke="#0b132b" stroke-width="3" vector-effect="non-scaling-stroke"/>`).join('')}</svg>
+            <span class="absolute top-1 right-1 text-[9px] font-bold text-[#0b132b]">Acum. ${_formatearNumeroMet(maxAcumulado)}</span>`;
+    }
+    const barras = datos.map(d => `<div class="met-bar-col" title="${_escaparHtmlMet(d.etiqueta)}: ${_formatearNumeroMet(d.valor)}">
+        <span class="met-bar-value">${_formatearNumeroMet(d.valor)}</span>
+        <div class="met-bar" style="height:${Math.max(d.valor > 0 ? 2 : 0, (d.valor / escala) * 100)}%"></div>
+        <span class="met-bar-label">${_escaparHtmlMet(d.etiqueta)}</span>
+    </div>`).join('');
+    contenedor.innerHTML = `<div class="met-chart" style="width:${ancho}px">${referencias}<div class="met-bars">${barras}</div>${lineas}</div>`;
+}
+
+function _htmlAnilloMet(titulo, subtitulo, actual, meta, unidad) {
+    const porcentaje = meta > 0 ? actual / meta * 100 : null;
+    let fondo = 'conic-gradient(#e2e8f0 0 100%)';
+    if (porcentaje !== null && porcentaje <= 100) {
+        fondo = `conic-gradient(#0b132b 0 ${Math.max(0, porcentaje)}%, #e2e8f0 ${Math.max(0, porcentaje)}% 100%)`;
+    } else if (porcentaje !== null) {
+        const exceso = Math.min(100, porcentaje - 100);
+        fondo = `conic-gradient(#dc2626 0 ${exceso}%, transparent ${exceso}% 100%), conic-gradient(#0b132b 0 100%)`;
+    }
+    const centro = porcentaje === null
+        ? '<div class="text-xl font-extrabold text-slate-500">SIN META</div>'
+        : `<div class="text-3xl font-extrabold ${porcentaje > 100 ? 'text-red-600' : 'text-[#0b132b]'}">${_formatearNumeroMet(porcentaje, 1)}%</div><div class="text-[10px] text-slate-500 mt-1">${_formatearNumeroMet(actual)} de ${_formatearNumeroMet(meta)} ${_escaparHtmlMet(unidad || '')}</div>`;
+    return `<h3 class="font-bold text-slate-900 text-center">${titulo}</h3><p class="text-xs text-slate-500 text-center mb-5">${subtitulo}</p>
+        <div class="met-ring" style="background:${fondo}"><div class="met-ring-center">${centro}</div></div>`;
+}
+
+function _configActividadActualMet() {
+    return actividadesConfigMet.get(_claveTextoMapaMet(filtroGeneralMet.actividad));
+}
+
+function _renderizarAnilloAnualMet() {
+    const hoy = new Date();
+    const anio = hoy.getFullYear();
+    const mes = hoy.getMonth() + 1;
+    const inicio = mes >= 9 ? anio : anio - 1;
+    const desde = `${inicio}-09`;
+    const hasta = `${inicio + 1}-08`;
+    const numeroGestion = Math.max(1, inicio - 2024);
+    const actual = _datosActividadTramoMet(filtroGeneralMet.actividad, desde, hasta).reduce((s, r) => s + r.metrado, 0);
+    const config = _configActividadActualMet();
+    const meta = config?.metas?.[tramoActivoMet] || 0;
+    const unidad = datosMetrados.find(d => d.partida === filtroGeneralMet.actividad)?.unidad || '';
+    const tarjeta = $m('met-ring-annual-card');
+    if (tarjeta) tarjeta.innerHTML = _htmlAnilloMet(`Año de gestión ${numeroGestion}`, `Sep ${inicio} – Ago ${inicio + 1}`, actual, meta, unidad);
+}
+
+function _poblarDetalleAnalisisMet() {
+    const periodos = _periodosEnFiltroMet();
+    if (!periodos.length) return;
+    if (!periodos.includes(periodoDetalleMet)) periodoDetalleMet = periodos[periodos.length - 1];
+    const anios = [...new Set(periodos.map(p => p.slice(0, 4)))];
+    const selectorAnio = $m('met-analysis-year');
+    if (selectorAnio) {
+        selectorAnio.innerHTML = anios.map(anio => `<option value="${anio}">${anio}</option>`).join('');
+        selectorAnio.value = periodoDetalleMet.slice(0, 4);
+    }
+    _rellenarMesDetalleMet(periodoDetalleMet.slice(5));
+}
+
+function _rellenarMesDetalleMet(preferido = '') {
+    const anio = $m('met-analysis-year')?.value;
+    const periodos = _periodosEnFiltroMet().filter(p => p.startsWith(`${anio}-`));
+    const selector = $m('met-analysis-month');
+    if (!selector) return;
+    selector.innerHTML = periodos.map(p => `<option value="${p.slice(5)}">${MESES_NOMBRE_MET[Number(p.slice(5)) - 1]}</option>`).join('');
+    const meses = periodos.map(p => p.slice(5));
+    selector.value = meses.includes(preferido) ? preferido : meses[meses.length - 1];
+    periodoDetalleMet = `${anio}-${selector.value}`;
+}
+
+function _renderizarDetalleMensualMet() {
+    if (!periodoDetalleMet || filtroGeneralMet.actividad === 'ALL') return;
+    const [anio, mes] = periodoDetalleMet.split('-').map(Number);
+    const diasMes = new Date(anio, mes, 0).getDate();
+    const registros = _datosActividadTramoMet(filtroGeneralMet.actividad, periodoDetalleMet, periodoDetalleMet);
+    const porDia = new Map();
+    registros.forEach(r => {
+        const dia = r.fecha?.dia;
+        if (dia) porDia.set(dia, (porDia.get(dia) || 0) + r.metrado);
+    });
+    const serie = Array.from({ length: diasMes }, (_, indice) => ({ clave: indice + 1, etiqueta: String(indice + 1), valor: porDia.get(indice + 1) || 0 }));
+    _renderizarGraficoMet('met-chart-daily', serie, false);
+    const actual = registros.reduce((s, r) => s + r.metrado, 0);
+    const config = _configActividadActualMet();
+    const metaAnual = config?.metas?.[tramoActivoMet] || 0;
+    const unidad = datosMetrados.find(d => d.partida === filtroGeneralMet.actividad)?.unidad || '';
+    const tarjeta = $m('met-ring-month-card');
+    if (tarjeta) tarjeta.innerHTML = _htmlAnilloMet('Meta mensual', _etiquetaMesMapaMet(periodoDetalleMet), actual, metaAnual > 0 ? metaAnual / 12 : 0, unidad);
 }
 
 function seleccionarTramoMapaMet(tramo) {
     if (!TRAMOS_MET.includes(tramo)) return;
     tramoActivoMet = tramo;
     document.querySelectorAll('.met-tramo-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tramo === tramo));
-    const filtroTramo = $m('met-filter-tramo');
-    if (filtroTramo) filtroTramo.value = tramo;
     aplicarFiltrosMet();
     renderizarMapaMet(true);
 }
@@ -797,45 +1071,16 @@ function _progresivaParaExcelMet(valor) {
     return Number.isFinite(numero) ? numero : valor;
 }
 
-function poblarSelectoresMet() {
-    const lados  = [...new Set(datosMetrados.map(d => d.lado).filter(Boolean))].sort();
-
-    const selLado  = $m('met-filter-lado');
-    const selTramo = $m('met-filter-tramo');
-    if (selLado)  selLado.innerHTML  = '<option value="ALL">Todos</option>' + lados.map(v => `<option value="${v}">${v}</option>`).join('');
-    if (selTramo) {
-        selTramo.innerHTML = TRAMOS_MET.map(v => `<option value="${v}">${v}</option>`).join('');
-        selTramo.value = tramoActivoMet;
-    }
-}
+function poblarSelectoresMet() {}
 
 // ==========================================
 // CONFIGURAR EVENTOS (llamado desde DOMContentLoaded)
 // ==========================================
 function configurarEventosMet() {
-    const btnB = $m('met-btn-buscar');
-    if (btnB) btnB.addEventListener('click', aplicarFiltrosMet);
-
-    const fFechaOp = $m('met-filter-fecha-op');
-    const fFechaVal = $m('met-filter-fecha-val');
-    if (fFechaOp && fFechaVal) {
-        // Todas las fechas no debe conservar una fecha oculta.
-        fFechaOp.addEventListener('change', () => {
-            if (fFechaOp.value === 'ALL') fFechaVal.value = '';
-        });
-        // Elegir una fecha equivale naturalmente a buscar esa fecha exacta.
-        fFechaVal.addEventListener('change', () => {
-            if (fFechaVal.value) fFechaOp.value = 'eq';
-        });
-    }
-
-    const fPartida = $m('met-filter-partida');
-    if (fPartida) fPartida.addEventListener('keyup', e => { if (e.key === 'Enter') aplicarFiltrosMet(); });
-
-    const btnPrev = $m('met-btn-prev');
-    const btnNext = $m('met-btn-next');
-    if (btnPrev) btnPrev.addEventListener('click', () => cambiarPaginaMet(-1));
-    if (btnNext) btnNext.addEventListener('click', () => cambiarPaginaMet(1));
+    $m('met-control-buscar')?.addEventListener('click', _buscarControlGeneralMet);
+    $m('met-control-limpiar')?.addEventListener('click', () => _establecerFiltroPredeterminadoMet(true));
+    $m('met-control-anio-inicio')?.addEventListener('change', () => _rellenarMesesControlMet('inicio'));
+    $m('met-control-anio-final')?.addEventListener('change', () => _rellenarMesesControlMet('final'));
 
     document.querySelectorAll('.met-tramo-tab').forEach(btn => {
         btn.addEventListener('click', () => seleccionarTramoMapaMet(btn.dataset.tramo));
@@ -843,18 +1088,16 @@ function configurarEventosMet() {
     document.querySelectorAll('.met-view-tab').forEach(btn => {
         btn.addEventListener('click', () => cambiarSubvistaMet(btn.dataset.metView));
     });
-    $m('met-map-actividad')?.addEventListener('change', () => {
-        renderizarMapaMet(false);
-        actualizarAnalisisMapaMet();
+    $m('met-map-months')?.addEventListener('change', evento => {
+        if (evento.target.matches('input[type="checkbox"]')) _cambiarMesVisibleMet(evento.target);
     });
-    $m('met-map-months')?.addEventListener('change', () => {
-        renderizarMapaMet(false);
-        actualizarAnalisisMapaMet();
+    $m('met-analysis-year')?.addEventListener('change', () => {
+        _rellenarMesDetalleMet();
+        _renderizarDetalleMensualMet();
     });
-    $m('met-map-meses-todos')?.addEventListener('click', () => {
-        document.querySelectorAll('#met-map-months input[type="checkbox"]').forEach(input => { input.checked = true; });
-        renderizarMapaMet(false);
-        actualizarAnalisisMapaMet();
+    $m('met-analysis-month')?.addEventListener('change', evento => {
+        periodoDetalleMet = `${$m('met-analysis-year').value}-${evento.target.value}`;
+        _renderizarDetalleMensualMet();
     });
 }
 
@@ -862,83 +1105,14 @@ function configurarEventosMet() {
 // FILTRADO Y ORDENAMIENTO
 // ==========================================
 function aplicarFiltrosMet() {
-    const fechaOp   = ($m('met-filter-fecha-op')  || {value:'ALL'}).value;
-    const fechaVal  = ($m('met-filter-fecha-val') || {value:''}).value;
-    const kmiOp     = ($m('met-filter-kmi-op')    || {value:'ALL'}).value;
-    const kmiVal    = parseFloat(($m('met-filter-kmi-val') || {value:''}).value);
-    const kmfOp     = ($m('met-filter-kmf-op')    || {value:'ALL'}).value;
-    const kmfVal    = parseFloat(($m('met-filter-kmf-val') || {value:''}).value);
-    const lado      = ($m('met-filter-lado')      || {value:'ALL'}).value;
-    const tramo     = ($m('met-filter-tramo')     || {value:'ALL'}).value;
-    const partida   = (($m('met-filter-partida')  || {value:''}).value || '').toLowerCase().trim();
-    const palabras  = partida ? partida.split(/\s+/) : [];
-
     filtradosMetrados = datosMetrados.filter(d => {
-        // FECHA
-        if (fechaOp !== 'ALL' && fechaVal) {
-            if (fechaOp === 'eq'  && d.fecha !== fechaVal) return false;
-            if (fechaOp === 'gte' && d.fecha < fechaVal)  return false;
-            if (fechaOp === 'lte' && d.fecha > fechaVal)  return false;
-        }
-        // KM INICIAL
-        if (kmiOp !== 'ALL' && !isNaN(kmiVal)) {
-            const v = _numeroKmMet(d.kmInicial);
-            if (kmiOp === 'eq'  && v !== kmiVal) return false;
-            if (kmiOp === 'gte' && v < kmiVal)   return false;
-            if (kmiOp === 'lte' && v > kmiVal)   return false;
-        }
-        // KM FINAL
-        if (kmfOp !== 'ALL' && !isNaN(kmfVal)) {
-            const v = _numeroKmMet(d.kmFinal);
-            if (kmfOp === 'eq'  && v !== kmfVal) return false;
-            if (kmfOp === 'gte' && v < kmfVal)   return false;
-            if (kmfOp === 'lte' && v > kmfVal)   return false;
-        }
-        // LADO
-        if (lado !== 'ALL' && d.lado !== lado) return false;
-        // TRAMO: la geometría se determina siempre por KM INICIAL.
-        if (tramo !== 'ALL') {
-            const calculado = _tramoPorKmInicialMapaMet(_numeroKmMet(d.kmInicial));
-            if ((calculado?.nombre || d.tramo) !== tramo) return false;
-        }
-        // PARTIDA (búsqueda por palabras)
-        if (palabras.length > 0) {
-            const txt = d.partida.toLowerCase();
-            if (!palabras.every(p => txt.includes(p))) return false;
-        }
-        return true;
+        const periodo = _mesClaveMapaMet(d.fecha);
+        if (periodo < filtroGeneralMet.desde || periodo > filtroGeneralMet.hasta) return false;
+        if (filtroGeneralMet.actividad !== 'ALL' && d.partida !== filtroGeneralMet.actividad) return false;
+        const tramo = _tramoPorKmInicialMapaMet(_numeroKmMet(d.kmInicial));
+        return tramo?.nombre === tramoActivoMet;
     });
-
-    // Sin encabezados ordenados, conservar el orden físico de METRADOS.
-    // Los filtros solo reducen las filas visibles; no alteran su posición.
-    if (criteriosMet.length === 0) {
-        filtradosMetrados.sort((a, b) => a.ordenHoja - b.ordenHoja);
-    } else {
-        filtradosMetrados.sort((a, b) => {
-            for (let i = 0; i < criteriosMet.length; i++) {
-                const crit = criteriosMet[i];
-                let valA = _getCampoMet(a, crit.columna);
-                let valB = _getCampoMet(b, crit.columna);
-
-                // Para columnas de foto: ordenar por nombre de archivo
-                if (crit.columna === 'nombreFotoAntes' || crit.columna === 'nombreFotoDurante' || crit.columna === 'nombreFotoDespues') {
-                    const kA = _extraerClaveFotoMet(valA);
-                    const kB = _extraerClaveFotoMet(valB);
-                    if (!kA && !kB) continue;
-                    if (!kA) return 1;
-                    if (!kB) return -1;
-                    valA = kA; valB = kB;
-                }
-
-                if (valA === valB) continue;
-                const cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true });
-                return crit.dir === 'asc' ? cmp : -cmp;
-            }
-            return 0;
-        });
-    }
-
-    paginaMetrados = 1;
+    filtradosMetrados.sort((a, b) => a.ordenHoja - b.ordenHoja);
     renderizarTablaMet();
     renderizarMapaMet(false);
     actualizarAnalisisMapaMet();
@@ -1052,19 +1226,16 @@ function construirCabecerasMet() {
     if (!thead) return;
     thead.innerHTML = `
     <tr class="bg-slate-50 border-b-2 border-[#1c2541] text-[11px] uppercase tracking-wider text-slate-500 font-bold">
-        <th class="px-2 py-4 w-[40px] min-w-[40px] text-center">ITEM</th>
-        ${_thMet('fecha',     'Fecha',     'w-[90px] min-w-[90px]')}
-        ${_thMet('actividad',     'Actividad', 'w-[90px] min-w-[90px]')}
-        ${_thMetWide('partida',   'Partida',   'w-[240px] min-w-[240px]')}
-        ${_thMet('kmInicial', 'KM Inicial', 'w-[90px] min-w-[90px]')}
-        ${_thMet('kmFinal',   'KM Final',   'w-[90px] min-w-[90px]')}
-        ${_thMet('lado',      'Lado',      'w-[70px] min-w-[70px]')}
-        ${_thMet('metrado',   'Metrado',   'w-[80px] min-w-[80px]')}
-        ${_thMet('unidad',    'Unidad',    'w-[70px] min-w-[70px]')}
-        ${_thMet('tramo',     'Tramo',     'w-[100px] min-w-[100px]')}
-        ${_thMetWide('nombreFotoAntes',   'FOTO_ANTES',   'w-[160px] min-w-[160px]')}
-        ${_thMetWide('nombreFotoDurante', 'FOTO_DURANTE', 'w-[160px] min-w-[160px]')}
-        ${_thMetWide('nombreFotoDespues', 'FOTO_DESPUES', 'w-[160px] min-w-[160px]')}
+        <th class="px-3 py-4 text-center">Fecha</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">Actividad</th>
+        <th class="px-4 py-4 text-center border-l border-slate-200 min-w-[300px]">Partida</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">KM inicial</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">KM final</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">Lado</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">Metrado</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">Unidad</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">Tramo</th>
+        <th class="px-3 py-4 text-center border-l border-slate-200">Grupo</th>
     </tr>`;
 }
 
@@ -1102,7 +1273,7 @@ function _guardarMiniaturaMet(id, dataUrl) {
     }
 }
 
-async function renderizarTablaMet() {
+async function renderizarTablaMetLegacy() {
     construirCabecerasMet();
 
     const tbody   = $m('met-tabla-body');
@@ -1241,6 +1412,38 @@ async function renderizarTablaMet() {
             });
         }
     }
+}
+
+function renderizarTablaMet() {
+    construirCabecerasMet();
+    const tbody = $m('met-tabla-body');
+    const info = $m('met-table-info');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!filtradosMetrados.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-12 text-slate-500">No se encontraron resultados para el filtro general.</td></tr>';
+        if (info) info.textContent = '0 registros';
+        return;
+    }
+    const fragmento = document.createDocumentFragment();
+    filtradosMetrados.forEach(d => {
+        const tr = document.createElement('tr');
+        tr.className = 'bg-white hover:bg-blue-50 transition-colors';
+        tr.innerHTML = `
+            <td class="px-3 py-2.5 text-center text-[11px] font-mono text-slate-600">${_escaparHtmlMet(d.fecha || '-')}</td>
+            <td class="px-3 py-2.5 border-l border-slate-200 text-xs font-semibold text-slate-700">${_escaparHtmlMet(d.actividad || '-')}</td>
+            <td class="px-4 py-2.5 border-l border-slate-200 text-xs text-slate-700">${_escaparHtmlMet(d.partida || '-')}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-[11px] font-mono">${_escaparHtmlMet(d.kmInicial || '-')}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-[11px] font-mono">${_escaparHtmlMet(d.kmFinal || '-')}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-[11px]">${_escaparHtmlMet(d.lado || '-')}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-xs font-bold">${_escaparHtmlMet(d.metrado || '-')}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-[11px]">${_escaparHtmlMet(d.unidad || '-')}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-[11px]">${_escaparHtmlMet(d.tramo || tramoActivoMet)}</td>
+            <td class="px-3 py-2.5 text-center border-l border-slate-200 text-[11px]">${_escaparHtmlMet(d.grupo || '-')}</td>`;
+        fragmento.appendChild(tr);
+    });
+    tbody.appendChild(fragmento);
+    if (info) info.textContent = `${filtradosMetrados.length.toLocaleString('es-PE')} registros · ${tramoActivoMet} · ${_etiquetaMesMapaMet(filtroGeneralMet.desde)} a ${_etiquetaMesMapaMet(filtroGeneralMet.hasta)}`;
 }
 
 function _badge(cnt, completo) {
