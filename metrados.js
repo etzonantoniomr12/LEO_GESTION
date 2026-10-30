@@ -22,7 +22,7 @@ let metradosCargados    = false;
 let datosMapaMetCargados = false;
 let cargaMapaMetEnCurso = null;
 let tramoActivoMet = 'TRAMO I';
-let subvistaActivaMet = 'mapa';
+let subvistaActivaMet = 'noticias';
 let mapaMet = null;
 let capaEjeMet = null;
 let capaActividadesMet = null;
@@ -63,8 +63,8 @@ function $m(id) { return document.getElementById(id); }
 // INICIALIZACIÓN
 // ==========================================
 function inicializarMetrados() {
+    cambiarSubvistaMet('noticias');
     if (metradosCargados) {
-        asegurarMapaMetradosVisible();
         return;
     }
     cargarDatosMetrados();
@@ -360,6 +360,7 @@ async function cargarDatosGeograficosMet() {
         _crearMapaMetrados();
         renderizarMapaMet(true);
         actualizarAnalisisMapaMet();
+        if (subvistaActivaMet === 'noticias') actualizarNoticiasMet();
     })();
 
     try {
@@ -423,6 +424,7 @@ function _inicializarControlGeneralMet() {
         });
         selectorActividad.innerHTML = '<option value="ALL">Todas las actividades</option>' + opciones.join('');
     }
+    _renderizarLeyendaActividadesNoticiasMet();
     const anios = [...new Set(periodosDisponiblesMet.map(periodo => periodo.slice(0, 4)))];
     ['met-control-anio-inicio', 'met-control-anio-final'].forEach(id => {
         const selector = $m(id);
@@ -1217,33 +1219,66 @@ function _htmlRankingNoticiasMet(items, tipo) {
     </div>`).join('');
 }
 
-function _htmlGraficoNoticiasMet(items) {
-    if (!items.length) return '<div class="h-full grid place-items-center text-sm text-slate-500">No existen actividades para graficar.</div>';
+function _renderizarLeyendaActividadesNoticiasMet() {
+    const contenedor = $m('met-news-activity-legend-list');
+    if (!contenedor) return;
+    const cortes = new Set([12, 22, 25, 28, 31, 34, 37, 41, 50]);
+    contenedor.innerHTML = ordenActividadesMet.map((partida, indice) => {
+        const posicion = indice + 1;
+        const item = itemActividadMet.get(_claveTextoMapaMet(partida)) || String(posicion);
+        const divisor = cortes.has(posicion) && posicion < ordenActividadesMet.length ? '<div class="met-news-legend-divider"></div>' : '';
+        return `<div class="met-news-legend-row"><span class="met-news-legend-item">${_escaparHtmlMet(item)}</span><span>${_escaparHtmlMet(partida)}</span></div>${divisor}`;
+    }).join('');
+}
+
+function _renderizarGraficoNoticiasMet(items) {
+    const contenedor = $m('met-news-progress-chart');
+    const eje = $m('met-news-chart-axis');
+    const etiquetaMeta = $m('met-news-chart-target-label');
+    if (!contenedor || !eje || !etiquetaMeta) return;
+    if (!items.length) {
+        contenedor.innerHTML = '<div class="h-full grid place-items-center text-sm text-slate-500">No existen actividades para graficar.</div>';
+        eje.innerHTML = '';
+        etiquetaMeta.classList.add('hidden');
+        return;
+    }
+    etiquetaMeta.classList.remove('hidden');
     const ordenados = [...items].sort((a, b) => a.orden - b.orden);
     const ancho = Math.max(900, ordenados.length * 54);
-    const alto = 270;
-    const margen = { izquierda: 48, derecha: 24, arriba: 18, abajo: 38 };
+    const alto = 400;
+    const margen = { izquierda: 18, derecha: 24, arriba: 18, abajo: 38 };
     const anchoUtil = ancho - margen.izquierda - margen.derecha;
     const altoUtil = alto - margen.arriba - margen.abajo;
     const maximo = Math.max(100, ...ordenados.map(item => item.porcentaje));
-    const techo = Math.ceil(maximo / 25) * 25 || 100;
+    const techo = Math.max(100, Math.ceil(maximo / 100) * 100);
     const x = indice => margen.izquierda + (ordenados.length === 1 ? anchoUtil / 2 : indice * anchoUtil / (ordenados.length - 1));
     const y = porcentaje => margen.arriba + altoUtil - (Math.min(porcentaje, techo) / techo * altoUtil);
     const puntos = ordenados.map((item, indice) => `${x(indice)},${y(item.porcentaje)}`).join(' ');
     const metaY = y(100);
-    const guias = [0, 50, 100, techo].filter((valor, indice, lista) => valor <= techo && lista.indexOf(valor) === indice)
-        .map(valor => `<line x1="${margen.izquierda}" y1="${y(valor)}" x2="${ancho - margen.derecha}" y2="${y(valor)}" stroke="#cbd5e1" stroke-dasharray="3 4"/><text x="${margen.izquierda - 8}" y="${y(valor) + 4}" text-anchor="end">${valor}%</text>`).join('');
+    const baseY = alto - margen.abajo;
+    const niveles = [0, techo * 0.25, techo * 0.5, techo * 0.75, techo];
+    const grillaHorizontal = niveles.map(valor => `<line x1="${margen.izquierda}" y1="${y(valor)}" x2="${ancho - margen.derecha}" y2="${y(valor)}" stroke="#dbe4ee" stroke-width="1"/>`).join('');
+    const grillaVertical = ordenados.map((_, indice) => `<line x1="${x(indice)}" y1="${margen.arriba}" x2="${x(indice)}" y2="${baseY}" stroke="#edf2f7" stroke-width="1"/>`).join('');
     const elementos = ordenados.map((item, indice) => `<g>
         <circle class="met-news-point" cx="${x(indice)}" cy="${y(item.porcentaje)}" r="6"><title>${_formatearNumeroMet(item.actual)}${item.unidad ? ` ${_escaparHtmlMet(item.unidad)}` : ''} · ${_formatearNumeroMet(item.porcentaje, 1)}%</title></circle>
         <text x="${x(indice)}" y="${alto - 12}" text-anchor="middle" font-weight="700">${_escaparHtmlMet(item.item)}</text>
     </g>`).join('');
-    return `<svg class="met-news-progress-chart" style="width:${ancho}px" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Porcentaje mensual por actividad">
-        ${guias}
+    const area = `${x(0)},${baseY} ${puntos} ${x(ordenados.length - 1)},${baseY}`;
+    contenedor.innerHTML = `<svg class="met-news-progress-chart" style="width:${ancho}px" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Porcentaje mensual por actividad">
+        <defs><linearGradient id="met-news-area-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#38bdf8" stop-opacity=".24"/><stop offset="100%" stop-color="#38bdf8" stop-opacity=".02"/></linearGradient></defs>
+        ${grillaHorizontal}${grillaVertical}
+        <polygon points="${area}" fill="url(#met-news-area-gradient)"/>
+        <line x1="${margen.izquierda}" y1="${baseY}" x2="${ancho - margen.derecha}" y2="${baseY}" stroke="#0b132b" stroke-width="1.5"/>
         <line class="met-news-target" x1="${margen.izquierda}" y1="${metaY}" x2="${ancho - margen.derecha}" y2="${metaY}"/>
-        <text x="${ancho - margen.derecha}" y="${metaY - 7}" text-anchor="end" fill="#dc2626" font-weight="800">META 100%</text>
         <polyline class="met-news-series" points="${puntos}"/>
         ${elementos}
     </svg>`;
+    const etiquetas = [...niveles, 100].filter((valor, indice, lista) => valor <= techo && lista.indexOf(valor) === indice).sort((a, b) => b - a);
+    eje.innerHTML = etiquetas.map(valor => {
+        const posicion = (1 - Math.min(valor, techo) / techo) * 100;
+        return `<span class="met-news-chart-axis-label" style="top:${Math.max(2, Math.min(98, posicion))}%">${_formatearNumeroMet(valor, 1)}%</span>`;
+    }).join('');
+    etiquetaMeta.style.top = `${metaY / alto * 100}%`;
 }
 
 async function _cargarFotosNoticiasMet() {
@@ -1422,7 +1457,7 @@ async function actualizarNoticiasMet() {
     }
     if ($m('met-news-top-high')) $m('met-news-top-high').innerHTML = _htmlRankingNoticiasMet(ranking.mayores, 'mayor');
     if ($m('met-news-top-low')) $m('met-news-top-low').innerHTML = _htmlRankingNoticiasMet(ranking.menores, 'menor');
-    if ($m('met-news-progress-chart')) $m('met-news-progress-chart').innerHTML = _htmlGraficoNoticiasMet(ranking.actividades);
+    _renderizarGraficoNoticiasMet(ranking.actividades);
     fotosCarruselNoticiasMet = seleccion;
     paginaCarruselNoticiasMet = 0;
     _renderizarCarruselNoticiasMet();
@@ -1515,6 +1550,8 @@ function configurarEventosMet() {
     });
     $m('met-news-carousel')?.addEventListener('mouseenter', _detenerCarruselNoticiasMet);
     $m('met-news-carousel')?.addEventListener('mouseleave', _iniciarCarruselNoticiasMet);
+    $m('met-table-scroller')?.addEventListener('scroll', _alinearTotalTablaMet, { passive: true });
+    window.addEventListener('resize', _alinearTotalTablaMet, { passive: true });
 }
 
 // ==========================================
@@ -1543,7 +1580,7 @@ function construirCabecerasMet() {
         <th class="px-3 py-4 text-center border-l border-slate-200">KM inicial</th>
         <th class="px-3 py-4 text-center border-l border-slate-200">KM final</th>
         <th class="px-3 py-4 text-center border-l border-slate-200">Lado</th>
-        <th class="px-3 py-4 text-center border-l border-slate-200">Metrado</th>
+        <th id="met-th-metrado" class="px-3 py-4 text-center border-l border-slate-200">Metrado</th>
         <th class="px-3 py-4 text-center border-l border-slate-200">Unidad</th>
         <th class="px-3 py-4 text-center border-l border-slate-200">Tramo</th>
         <th class="px-3 py-4 text-center border-l border-slate-200">Grupo</th>
@@ -1552,6 +1589,30 @@ function construirCabecerasMet() {
 
 function _escaparHtmlMet(valor) {
     return String(valor || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function _alinearTotalTablaMet() {
+    const total = $m('met-table-total');
+    const cabecera = $m('met-th-metrado');
+    const pie = total?.parentElement;
+    if (!total || !cabecera || !pie) return;
+    const rectCabecera = cabecera.getBoundingClientRect();
+    const rectPie = pie.getBoundingClientRect();
+    total.style.left = `${rectCabecera.left + rectCabecera.width / 2 - rectPie.left}px`;
+    total.style.width = `${Math.max(190, rectCabecera.width - 12)}px`;
+}
+
+function _mostrarTotalTablaMet(valor = null, unidad = '') {
+    const total = $m('met-table-total');
+    if (!total) return;
+    if (valor === null) {
+        total.innerHTML = '<span class="w-full border-t-2 border-dotted border-white/80"></span>';
+        total.title = 'Seleccione una actividad específica para sumar sus metrados.';
+    } else {
+        total.innerHTML = `<span aria-hidden="true">Σ</span><span class="met-total-value">${_formatearNumeroMet(valor)}${unidad ? ` ${_escaparHtmlMet(unidad)}` : ''}</span>`;
+        total.title = `Suma de metrados para ${filtroGeneralMet.actividad}`;
+    }
+    requestAnimationFrame(_alinearTotalTablaMet);
 }
 
 function renderizarTablaMet() {
@@ -1564,7 +1625,7 @@ function renderizarTablaMet() {
     if (!filtradosMetrados.length) {
         tbody.innerHTML = '<tr><td colspan="10" class="text-center py-12 text-slate-500">No se encontraron resultados para el filtro general.</td></tr>';
         if (info) info.textContent = '0 registros';
-        if (total) total.textContent = filtroGeneralMet.actividad === 'ALL' ? '—' : 'Σ 0';
+        _mostrarTotalTablaMet(filtroGeneralMet.actividad === 'ALL' ? null : 0);
         return;
     }
     const fragmento = document.createDocumentFragment();
@@ -1586,19 +1647,15 @@ function renderizarTablaMet() {
     });
     tbody.appendChild(fragmento);
     if (info) info.textContent = `${filtradosMetrados.length.toLocaleString('es-PE')} registros · ${tramoActivoMet} · ${_etiquetaMesMapaMet(filtroGeneralMet.desde)} a ${_etiquetaMesMapaMet(filtroGeneralMet.hasta)}`;
-    if (total) {
-        if (filtroGeneralMet.actividad === 'ALL') {
-            total.textContent = '—';
-            total.title = 'Seleccione una actividad específica para sumar sus metrados.';
-        } else {
-            const suma = filtradosMetrados.reduce((acumulado, fila) => {
-                const valor = _numeroFlexibleMapaMet(fila.metrado);
-                return acumulado + (Number.isFinite(valor) ? valor : 0);
-            }, 0);
-            const unidad = filtradosMetrados.find(fila => String(fila.unidad || '').trim())?.unidad || '';
-            total.textContent = `Σ ${_formatearNumeroMet(suma)}${unidad ? ` ${unidad}` : ''}`;
-            total.title = `Suma de metrados para ${filtroGeneralMet.actividad}`;
-        }
+    if (filtroGeneralMet.actividad === 'ALL') {
+        _mostrarTotalTablaMet();
+    } else {
+        const suma = filtradosMetrados.reduce((acumulado, fila) => {
+            const valor = _numeroFlexibleMapaMet(fila.metrado);
+            return acumulado + (Number.isFinite(valor) ? valor : 0);
+        }, 0);
+        const unidad = filtradosMetrados.find(fila => String(fila.unidad || '').trim())?.unidad || '';
+        _mostrarTotalTablaMet(suma, unidad);
     }
 }
 

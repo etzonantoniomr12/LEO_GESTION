@@ -198,6 +198,19 @@
         .met-news-progress-chart .met-news-target { stroke: #dc2626; stroke-width: 2; stroke-dasharray: 7 5; }
         .met-news-progress-chart .met-news-series { fill: none; stroke: #0b132b; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
         .met-news-progress-chart .met-news-point { fill: #38bdf8; stroke: white; stroke-width: 2; cursor: help; }
+        #met-news-main { margin-right: 340px; }
+        .met-news-chart-shell { position: relative; min-height: 0; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; box-shadow: inset 0 0 0 1px rgba(255,255,255,.75); }
+        .met-news-chart-axis { position: absolute; z-index: 12; left: 0; top: 18px; bottom: 38px; width: 68px; background: rgba(248,250,252,.98); border-right: 1px solid #94a3b8; pointer-events: none; }
+        .met-news-chart-axis-label { position: absolute; right: 8px; transform: translateY(-50%); color: #475569; font-size: 12px; font-weight: 700; white-space: nowrap; }
+        .met-news-chart-target-label { position: absolute; z-index: 13; left: 76px; transform: translateY(-115%); padding: 2px 7px; border-radius: 5px; background: rgba(254,242,242,.94); color: #dc2626; font-size: 11px; font-weight: 900; pointer-events: none; }
+        .met-news-chart-scroller { height: 100%; margin-left: 68px; overflow-x: auto; overflow-y: hidden; background: white; }
+        .met-news-activity-legend { position: fixed; z-index: 35; top: 150px; right: 18px; bottom: 66px; width: min(320px, 29vw); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #1c2541; border-radius: 16px; background: rgba(255,255,255,.97); box-shadow: 0 14px 35px rgba(11,19,43,.22); backdrop-filter: blur(8px); }
+        .met-news-legend-list { min-height: 0; overflow-y: auto; padding: 7px 9px; }
+        .met-news-legend-row { display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 7px; align-items: start; padding: 4px 2px; color: #334155; font-size: 10px; line-height: 1.2; }
+        .met-news-legend-item { color: #0b132b; font-weight: 900; text-align: right; }
+        .met-news-legend-divider { margin: 4px 0; border-top: 1px dashed #94a3b8; }
+        #met-table-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0b132b; font-size: 24px; line-height: 1; }
+        #met-table-total .met-total-value { margin-left: auto; text-align: right; white-space: nowrap; }
         @media (max-width: 767px) {
             #met-panel-noticias { overflow-y: auto; }
             #met-news-layout { display: block; height: auto; }
@@ -205,9 +218,10 @@
             .met-news-carousel-pair { grid-template-columns: 1fr; height: auto; }
             .met-news-rank-grid { margin-top: 16px; }
             .met-news-rank-grid { height: auto; }
-            .met-news-rank-grid article { height: 360px; }
+            .met-news-rank-grid article { height: 480px; }
             .met-news-rank-scroll { max-height: 420px; }
         }
+        @media (max-width: 1050px) { #met-news-main { margin-right: 0; } .met-news-activity-legend { display: none; } }
     </style>
     <!-- Librerías para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -605,7 +619,7 @@
         </div>
 
         <!-- Filtro general compartido por Mapa, Análisis y Tabla -->
-        <div id="met-control-panel" class="bg-white border-b border-slate-200 shadow-sm px-4 py-3 shrink-0">
+        <div id="met-control-panel" class="hidden bg-white border-b border-slate-200 shadow-sm px-4 py-3 shrink-0">
             <div class="flex flex-wrap items-end gap-3 max-w-[1600px] mx-auto">
                 <div class="flex-1 min-w-[260px]">
                     <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Actividad</label>
@@ -641,7 +655,7 @@
                 <p class="text-slate-500 font-medium animate-pulse">Preparando metrados y cartografía...</p>
             </div>
             <!-- MAPA -->
-            <section id="met-panel-mapa" class="absolute inset-0">
+            <section id="met-panel-mapa" class="hidden absolute inset-0">
                 <div id="met-map"></div>
 
                 <div id="met-map-controls" class="met-map-card absolute top-4 left-4 z-[500] w-[350px] max-w-[calc(100%-2rem)] rounded-2xl border border-white/70 overflow-hidden">
@@ -715,8 +729,8 @@
             </section>
 
             <!-- NOTICIAS -->
-            <section id="met-panel-noticias" class="hidden absolute inset-0 overflow-auto bg-slate-50 p-4 md:p-5">
-                <div class="max-w-[1500px] mx-auto min-h-full flex flex-col gap-4">
+            <section id="met-panel-noticias" class="absolute inset-0 overflow-auto bg-slate-50 p-4 md:p-5">
+                <div id="met-news-main" class="min-h-full flex flex-col gap-4">
                     <div class="flex flex-wrap items-end justify-between gap-3">
                         <div>
                             <h2 class="text-xl font-bold text-slate-900">Noticias del tramo</h2>
@@ -731,7 +745,7 @@
 
                     <div id="met-news-content">
                         <div id="met-news-layout" class="space-y-4">
-                            <article id="met-news-carousel" class="h-[360px] min-h-0 bg-[#0b132b] border border-[#1c2541] rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                            <article id="met-news-carousel" class="h-[480px] min-h-0 bg-[#0b132b] border border-[#1c2541] rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div class="shrink-0 px-4 py-3 flex items-center justify-between gap-3 text-white border-b border-white/10">
                                     <div><h3 class="font-extrabold">Evidencias durante la ejecución</h3><p class="text-xs text-slate-300">Avance automático · una fotografía reciente por actividad</p></div>
                                     <div class="flex items-center gap-2">
@@ -746,7 +760,7 @@
                                 </div>
                             </article>
 
-                            <div class="met-news-rank-grid grid grid-cols-1 xl:grid-cols-2 gap-4 h-[360px] min-h-0">
+                            <div class="met-news-rank-grid grid grid-cols-1 xl:grid-cols-2 gap-4 h-[480px] min-h-0">
                             <article class="min-h-0 bg-white border border-emerald-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div class="px-5 py-4 bg-emerald-50 border-b border-emerald-200">
                                     <h3 class="font-extrabold text-emerald-900">Top 10 · mayor avance mensual</h3>
@@ -763,17 +777,25 @@
                             </article>
                             </div>
 
-                            <article class="h-[360px] bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                            <article class="h-[480px] bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div class="shrink-0 px-5 py-4 border-b border-slate-200">
                                     <h3 class="font-extrabold text-slate-900">Avance mensual por actividad</h3>
                                     <p class="text-xs text-slate-500 mt-0.5">El número corresponde al ITEM de la hoja ACTIVIDADES · línea roja: meta del 100%</p>
                                 </div>
-                                <div id="met-news-progress-chart" class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-3"></div>
+                                <div class="met-news-chart-shell flex-1 min-h-0 m-3 mt-2">
+                                    <div id="met-news-chart-axis" class="met-news-chart-axis"></div>
+                                    <div id="met-news-chart-target-label" class="met-news-chart-target-label">META 100%</div>
+                                    <div class="met-news-chart-scroller"><div id="met-news-progress-chart" class="h-full min-h-0"></div></div>
+                                </div>
                             </article>
                         </div>
                     </div>
                     <div id="met-news-empty" class="hidden min-h-[360px] bg-white border border-dashed border-slate-300 rounded-2xl place-items-center text-center p-8 text-slate-500"></div>
                 </div>
+                <aside id="met-news-activity-legend" class="met-news-activity-legend">
+                    <div class="shrink-0 px-4 py-3 bg-[#0b132b] text-white"><p class="font-extrabold text-sm">Actividades</p><p class="text-[10px] text-slate-300">Leyenda del eje horizontal</p></div>
+                    <div id="met-news-activity-legend-list" class="met-news-legend-list"></div>
+                </aside>
             </section>
 
             <!-- TABLA -->
@@ -781,7 +803,7 @@
         <!-- Tabla Metrados -->
         <main id="met-main-container" class="flex-1 min-h-0 overflow-hidden p-4 bg-slate-50 relative flex justify-center">
             <div class="bg-white rounded-xl shadow-soft border-2 border-[#1c2541] overflow-hidden flex flex-col flex-1 min-h-0 w-full max-w-[1600px] mx-auto">
-                <div class="overflow-x-auto overflow-y-auto flex-1 min-h-0 w-full custom-table-scroll">
+                <div id="met-table-scroller" class="overflow-x-auto overflow-y-auto flex-1 min-h-0 w-full custom-table-scroll">
                     <table class="mx-auto text-left border-collapse w-full" style="min-width: 1150px;">
                         <thead class="sticky top-0 z-20 shadow-md bg-slate-50" id="met-tabla-head">
                             <!-- Generado dinámicamente por metrados.js -->
@@ -794,7 +816,7 @@
 
                 <div class="relative bg-slate-50/80 border-t border-slate-200 px-6 py-3 min-h-[46px]">
                     <div class="text-sm font-medium text-slate-500" id="met-table-info">Cargando...</div>
-                    <div id="met-table-total" class="absolute left-[73%] top-1/2 -translate-x-1/2 -translate-y-1/2 min-w-[130px] px-4 py-2 rounded-lg bg-[#2563eb] text-white text-center text-xs font-extrabold shadow-sm">—</div>
+                    <div id="met-table-total" class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 min-w-[190px] px-4 py-2 rounded-lg text-white font-extrabold shadow-sm"><span class="w-full border-t-2 border-dotted border-white/80"></span></div>
                 </div>
             </div>
         </main>
@@ -803,8 +825,8 @@
 
         <!-- Pestañas inferiores -->
         <nav class="bg-white border-t border-slate-200 px-4 py-2 flex items-center justify-center gap-2 shrink-0 shadow-[0_-4px_16px_rgba(15,23,42,0.06)]">
-            <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="noticias">NOTICIAS</button>
-            <button class="met-view-tab active min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="mapa">MAPA</button>
+            <button class="met-view-tab active min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="noticias">NOTICIAS</button>
+            <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="mapa">MAPA</button>
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="analisis">ANÁLISIS</button>
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="tabla">TABLA</button>
         </nav>
@@ -813,6 +835,6 @@
     <!-- Script principal -->
 <script src="script.js?v=18"></script>
     <script src="asistencia.js?v=2"></script>
-<script src="metrados.js?v=31"></script>
+<script src="metrados.js?v=34"></script>
 </body>
 </html>
