@@ -303,9 +303,12 @@ async function cargarDatosGeograficosMet() {
                 fila.VAL_MAXIMO ?? fila['VAL_MAXIMO DIARIO'] ?? fila['VALOR MAXIMO']
             );
             const metas = {};
+            const metasValidas = {};
             TRAMOS_MET.forEach((nombreTramo, indice) => {
-                const valorMeta = _numeroFlexibleMapaMet(fila[`TRAMO ${indice + 1}`]);
+                const valorOriginal = fila[`TRAMO ${indice + 1}`];
+                const valorMeta = _numeroFlexibleMapaMet(valorOriginal);
                 metas[nombreTramo] = Number.isFinite(valorMeta) ? valorMeta : 0;
+                metasValidas[nombreTramo] = String(valorOriginal ?? '').trim() !== '' && Number.isFinite(valorMeta) && valorMeta >= 0;
             });
             const clavePartida = _claveTextoMapaMet(partida);
             const item = String(fila.ITEM || '').trim();
@@ -319,7 +322,8 @@ async function cargarDatosGeograficosMet() {
                     partida,
                     tipo,
                     limite: Number.isFinite(limite) && limite > 0 ? limite : 0,
-                    metas
+                    metas,
+                    metasValidas
                 });
             }
         });
@@ -1138,8 +1142,14 @@ function _calcularRankingNoticiasMet() {
         const clave = _claveTextoMapaMet(actividad);
         const configuracion = actividadesConfigMet.get(clave);
         const metaAnual = Number(configuracion?.metas?.[tramoActivoMet]) || 0;
+        const metaAnualValida = configuracion?.metasValidas?.[tramoActivoMet] === true;
         const valores = acumulados.get(clave) || { actual: 0, anterior: 0 };
         const metaMensual = metaAnual > 0 ? metaAnual / 12 : 0;
+        const metradoValido = Number.isFinite(valores.actual) && valores.actual >= 0;
+        const puntoAlerta = !metaAnualValida || !metradoValido;
+        const porcentajeGrafico = puntoAlerta
+            ? 0
+            : (metaAnual === 0 ? 100 : valores.actual / metaMensual * 100);
         const unidad = datosMetrados.find(d => _claveTextoMapaMet(d.partida) === clave)?.unidad || '';
         return {
             actividad,
@@ -1151,6 +1161,8 @@ function _calcularRankingNoticiasMet() {
             delta: valores.actual - valores.anterior,
             metaMensual,
             porcentaje: metaMensual > 0 ? valores.actual / metaMensual * 100 : (valores.actual > 0 ? 100 : 0),
+            porcentajeGrafico,
+            puntoAlerta,
             unidad
         };
     }).filter(Boolean);
@@ -1219,18 +1231,18 @@ function _renderizarGraficoNoticiasMet(items) {
     const margen = { izquierda: 18, derecha: 24, arriba: 18, abajo: 38 };
     const anchoUtil = ancho - margen.izquierda - margen.derecha;
     const altoUtil = alto - margen.arriba - margen.abajo;
-    const maximo = Math.max(100, ...ordenados.map(item => item.porcentaje));
+    const maximo = Math.max(100, ...ordenados.map(item => item.porcentajeGrafico));
     const techo = Math.max(100, Math.ceil(maximo / 100) * 100);
     const x = indice => margen.izquierda + (ordenados.length === 1 ? anchoUtil / 2 : indice * anchoUtil / (ordenados.length - 1));
     const y = porcentaje => margen.arriba + altoUtil - (Math.min(porcentaje, techo) / techo * altoUtil);
-    const puntos = ordenados.map((item, indice) => `${x(indice)},${y(item.porcentaje)}`).join(' ');
+    const puntos = ordenados.map((item, indice) => `${x(indice)},${y(item.porcentajeGrafico)}`).join(' ');
     const metaY = y(100);
     const baseY = alto - margen.abajo;
     const niveles = [0, techo * 0.25, techo * 0.5, techo * 0.75, techo];
     const grillaHorizontal = niveles.map(valor => `<line x1="${margen.izquierda}" y1="${y(valor)}" x2="${ancho - margen.derecha}" y2="${y(valor)}" stroke="#dbe4ee" stroke-width="1"/>`).join('');
     const grillaVertical = ordenados.map((_, indice) => `<line x1="${x(indice)}" y1="${margen.arriba}" x2="${x(indice)}" y2="${baseY}" stroke="#edf2f7" stroke-width="1"/>`).join('');
     const elementos = ordenados.map((item, indice) => `<g>
-        <circle class="met-news-point" cx="${x(indice)}" cy="${y(item.porcentaje)}" r="6"><title>${_formatearNumeroMet(item.actual)}${item.unidad ? ` ${_escaparHtmlMet(item.unidad)}` : ''} · ${_formatearNumeroMet(item.porcentaje, 1)}%</title></circle>
+        <circle class="met-news-point${item.puntoAlerta ? ' met-news-point-alert' : ''}" cx="${x(indice)}" cy="${y(item.porcentajeGrafico)}" r="${item.puntoAlerta ? 18 : 6}"><title>${_formatearNumeroMet(item.actual)}${item.unidad ? ` ${_escaparHtmlMet(item.unidad)}` : ''} · ${_formatearNumeroMet(item.porcentajeGrafico, 1)}%</title></circle>
         <text x="${x(indice)}" y="${alto - 12}" text-anchor="middle" font-weight="700">${_escaparHtmlMet(item.item)}</text>
     </g>`).join('');
     const area = `${x(0)},${baseY} ${puntos} ${x(ordenados.length - 1)},${baseY}`;
