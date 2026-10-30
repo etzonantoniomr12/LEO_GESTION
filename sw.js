@@ -1,7 +1,7 @@
-const CACHE_NAME = 'reportes-vial-v52';
+const CACHE_NAME = 'reportes-vial-v53';
 const urlsToCache = [
   './index.html',
-    './script.js?v=21',
+    './script.js?v=22',
     './asistencia.js?v=2',
     './metrados.js?v=41',
   './CSV HITOS Y EJE/EJES_TRAMOS.csv',

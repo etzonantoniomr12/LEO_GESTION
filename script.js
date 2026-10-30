@@ -113,6 +113,34 @@ const GAS_THUMBS_URL = "https://script.google.com/macros/s/AKfycby3n2oEBpKtFzLxv
 const CACHE_MINIATURAS_REG = new Map();
 const MAX_CACHE_MINIATURAS_REG = 150;
 const TAMANO_LOTE_MINIATURAS_REG = 20;
+const CLAVE_MODO_SIN_MINIATURAS_REG = 'leoModoSinMiniaturasRegistro';
+let miniaturasAutomaticasRegistro = true;
+try {
+    miniaturasAutomaticasRegistro = localStorage.getItem(CLAVE_MODO_SIN_MINIATURAS_REG) !== '1';
+} catch (_) {}
+
+function actualizarControlMiniaturasRegistro() {
+    const boton = document.getElementById('btn-toggle-miniaturas');
+    const leon = document.getElementById('logo-leon-miniaturas');
+    const modoSinMiniaturas = !miniaturasAutomaticasRegistro;
+    if (boton) {
+        boton.setAttribute('aria-pressed', String(modoSinMiniaturas));
+        boton.title = modoSinMiniaturas
+            ? 'Activar carga automática de miniaturas'
+            : 'Desactivar carga automática de miniaturas';
+    }
+    if (leon) leon.style.transform = modoSinMiniaturas ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function alternarMiniaturasRegistro() {
+    miniaturasAutomaticasRegistro = !miniaturasAutomaticasRegistro;
+    try {
+        localStorage.setItem(CLAVE_MODO_SIN_MINIATURAS_REG, miniaturasAutomaticasRegistro ? '0' : '1');
+    } catch (_) {}
+    actualizarControlMiniaturasRegistro();
+    const vistaRegistro = document.getElementById('view-registro');
+    if (vistaRegistro && !vistaRegistro.classList.contains('hidden') && datosGlobales.length) renderizarTabla();
+}
 
 // Elementos del DOM
 const dom = {
@@ -143,6 +171,7 @@ const dom = {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     configurarEventos();
+    actualizarControlMiniaturasRegistro();
     
     // Restaurar vista y cargar solo los datos de esa vista (esManual = false)
     const vistaGuardada = sessionStorage.getItem('vistaActual') || 'registro';
@@ -346,14 +375,25 @@ function quitarExtensionFoto(nombreFoto) {
 // ==========================================
 // FILTRADO Y ORDENAMIENTO
 // ==========================================
+function normalizarLineaBusquedaRegistro(valor) {
+    return String(valor || '')
+        .toLowerCase()
+        .replace(/\s*:\s*/g, ' : ')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+}
+
 function aplicarFiltros() {
     const valGrupo = dom.fGrupo.value;
     const valUsuario = dom.fUsuario.value;
-    const valDesc = dom.fDescripcion.value.toLowerCase().trim();
+    const valDescOriginal = dom.fDescripcion.value.trim();
+    const coincidenciaExacta = valDescOriginal.match(/^["“](.*)["”]$/);
+    const valDesc = valDescOriginal.toLowerCase();
     const valFechaOp = dom.fFechaOp.value;
     const valFechaVal = dom.fFechaVal.value;
 
-    const palabrasDesc = valDesc ? valDesc.split(/\s+/) : [];
+    const textoExacto = coincidenciaExacta ? normalizarLineaBusquedaRegistro(coincidenciaExacta[1]) : '';
+    const palabrasDesc = !coincidenciaExacta && valDesc ? valDesc.split(/\s+/) : [];
 
     // ==============================================================
     // Guardar filtros actuales en sessionStorage
@@ -369,7 +409,9 @@ function aplicarFiltros() {
         const matchUsuario = valUsuario === 'ALL' || d.usuario === valUsuario;
         
         const descMinuscula = d.descripcion.toLowerCase();
-        const matchDesc = palabrasDesc.length === 0 || palabrasDesc.every(p => descMinuscula.includes(p));
+        const matchDesc = coincidenciaExacta
+            ? d.descripcion.split(/\r?\n/).some(linea => normalizarLineaBusquedaRegistro(linea) === textoExacto)
+            : (palabrasDesc.length === 0 || palabrasDesc.every(p => descMinuscula.includes(p)));
         
         let matchFecha = true;
         if (valFechaOp !== 'ALL' && valFechaVal) {
@@ -538,7 +580,13 @@ async function renderizarTabla() {
             // El índice evita IDs HTML duplicados si una foto se repite.
             const containerId = `foto-container-${globalIndex}-${fila.driveId}`;
             const copyButtonId = `foto-copy-${globalIndex}-${fila.driveId}`;
-            contenedoresFotos.push({ id: fila.driveId, containerId, copyButtonId });
+            if (miniaturasAutomaticasRegistro) contenedoresFotos.push({ id: fila.driveId, containerId, copyButtonId });
+            const contenidoFoto = miniaturasAutomaticasRegistro
+                ? `<svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>`
+                : `<span class="text-xs text-slate-500 font-bold">🔗 VER FOTO</span>`;
             htmlFoto = `
             <div class="relative w-full h-full min-h-[180px] overflow-hidden bg-slate-100">
                 <div class="absolute top-0 left-0 right-0 z-10 grid grid-cols-2 gap-2 p-2">
@@ -546,10 +594,7 @@ async function renderizarTabla() {
                     <button type="button" onclick="copiarLinkRegistro('${fila.driveId}', this)" class="px-3 py-2 rounded-lg bg-white/75 hover:bg-white/90 text-blue-950 text-xs font-bold border border-white/80 shadow-md backdrop-blur-sm transition-colors">LINK</button>
                 </div>
                 <div class="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-slate-100 cursor-pointer" id="${containerId}" role="button" tabindex="0" title="Abrir fotografía en Google Drive" onclick="abrirEnDrive('${fila.driveId}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); abrirEnDrive('${fila.driveId}'); }">
-                    <svg class="animate-spin h-6 w-6 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                    ${contenidoFoto}
                 </div>
             </div>`;
         } else {
@@ -607,6 +652,7 @@ async function renderizarTabla() {
         // Mismo patrón validado en Metrados: la respuesta del Apps Script se
         // procesa de 20 fotos y se pinta antes de solicitar el lote siguiente.
         for (let i = 0; i < idsPendientes.length; i += TAMANO_LOTE_MINIATURAS_REG) {
+            if (!miniaturasAutomaticasRegistro) break;
             const lote = idsPendientes.slice(i, i + TAMANO_LOTE_MINIATURAS_REG);
             try {
                 const resp = await fetch(GAS_THUMBS_URL, {
@@ -614,6 +660,7 @@ async function renderizarTabla() {
                     body: JSON.stringify({ ids: lote })
                 });
                 const data = await resp.json();
+                if (!miniaturasAutomaticasRegistro) break;
                 if (data.success && data.data) {
                     Object.entries(data.data).forEach(([id, dataUrl]) => guardarMiniaturaRegistro(id, dataUrl));
                     pintarMiniaturas(data.data);
