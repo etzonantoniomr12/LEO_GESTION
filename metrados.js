@@ -31,6 +31,7 @@ let hitosPorTramoMet = new Map();
 let rangosTramoMet = [];
 let actividadesConfigMet = new Map();
 let ordenActividadesMet = [];
+let itemActividadMet = new Map();
 let coloresMesMet = new Map();
 let ordenSeleccionMesesMet = [];
 let periodosDisponiblesMet = [];
@@ -286,6 +287,7 @@ async function cargarDatosGeograficosMet() {
         hitosPorTramoMet = new Map(TRAMOS_MET.map(nombre => [nombre, []]));
         actividadesConfigMet = new Map();
         ordenActividadesMet = [];
+        itemActividadMet = new Map();
 
         filasEje.forEach(filaOriginal => {
             const fila = _filaNormalizadaMapaMet(filaOriginal);
@@ -336,9 +338,11 @@ async function cargarDatosGeograficosMet() {
                 metas[nombreTramo] = Number.isFinite(valorMeta) ? valorMeta : 0;
             });
             const clavePartida = _claveTextoMapaMet(partida);
+            const item = String(fila.ITEM || '').trim();
             if (partida && !partidasRegistradas.has(clavePartida)) {
                 partidasRegistradas.add(clavePartida);
                 ordenActividadesMet.push(partida);
+                itemActividadMet.set(clavePartida, item || String(ordenActividadesMet.length));
             }
             if (partida && (tipo === 'P' || tipo === 'L')) {
                 actividadesConfigMet.set(clavePartida, {
@@ -410,7 +414,8 @@ function _inicializarControlGeneralMet() {
         const cortes = new Set([12, 22, 25, 28, 31, 34, 37, 41, 50]);
         const opciones = [];
         ordenActividadesMet.forEach((partida, indice) => {
-            opciones.push(`<option value="${_escaparHtmlMet(partida)}">${_escaparHtmlMet(partida)}</option>`);
+            const item = itemActividadMet.get(_claveTextoMapaMet(partida)) || String(indice + 1);
+            opciones.push(`<option value="${_escaparHtmlMet(partida)}">${_escaparHtmlMet(item)} · ${_escaparHtmlMet(partida)}</option>`);
             const posicion = indice + 1;
             if (cortes.has(posicion) && posicion < ordenActividadesMet.length) {
                 opciones.push(`<option disabled class="font-bold text-slate-400">──────────────</option>`);
@@ -1161,32 +1166,32 @@ function _calcularRankingNoticiasMet() {
         const clave = _claveTextoMapaMet(actividad);
         const configuracion = actividadesConfigMet.get(clave);
         const metaAnual = Number(configuracion?.metas?.[tramoActivoMet]) || 0;
-        if (metaAnual <= 0) return null;
         const valores = acumulados.get(clave) || { actual: 0, anterior: 0 };
-        const metaMensual = metaAnual / 12;
+        const metaMensual = metaAnual > 0 ? metaAnual / 12 : 0;
         const unidad = datosMetrados.find(d => _claveTextoMapaMet(d.partida) === clave)?.unidad || '';
         return {
             actividad,
             clave,
             orden,
+            item: itemActividadMet.get(clave) || String(orden + 1),
             actual: valores.actual,
             anterior: valores.anterior,
             delta: valores.actual - valores.anterior,
             metaMensual,
-            porcentaje: valores.actual / metaMensual * 100,
+            porcentaje: metaMensual > 0 ? valores.actual / metaMensual * 100 : (valores.actual > 0 ? 100 : 0),
             unidad
         };
     }).filter(Boolean);
 
     const mayores = [...actividades]
         .sort((a, b) => b.porcentaje - a.porcentaje || b.actual - a.actual || a.orden - b.orden)
-        .slice(0, 5);
+        .slice(0, 10);
     const clavesMayores = new Set(mayores.map(item => item.clave));
     const menores = actividades
         .filter(item => !clavesMayores.has(item.clave))
         .sort((a, b) => a.porcentaje - b.porcentaje || a.actual - b.actual || a.orden - b.orden)
         .slice(0, 10);
-    return { periodoActual, periodoAnterior, mayores, menores };
+    return { periodoActual, periodoAnterior, mayores, menores, actividades };
 }
 
 function _htmlTendenciaNoticiasMet(item) {
@@ -1197,7 +1202,7 @@ function _htmlTendenciaNoticiasMet(item) {
 }
 
 function _htmlRankingNoticiasMet(items, tipo) {
-    if (!items.length) return '<p class="p-5 text-sm text-slate-500">No existen actividades con meta para este tramo.</p>';
+    if (!items.length) return '<p class="p-5 text-sm text-slate-500">No existen actividades para este tramo.</p>';
     const mayor = tipo === 'mayor';
     return items.map((item, indice) => `<div class="met-news-rank-row">
         <span class="met-news-rank-number ${mayor ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${indice + 1}</span>
@@ -1210,6 +1215,35 @@ function _htmlRankingNoticiasMet(items, tipo) {
             <p class="text-xs mt-1">${_htmlTendenciaNoticiasMet(item)}</p>
         </div>
     </div>`).join('');
+}
+
+function _htmlGraficoNoticiasMet(items) {
+    if (!items.length) return '<div class="h-full grid place-items-center text-sm text-slate-500">No existen actividades para graficar.</div>';
+    const ordenados = [...items].sort((a, b) => a.orden - b.orden);
+    const ancho = Math.max(900, ordenados.length * 54);
+    const alto = 270;
+    const margen = { izquierda: 48, derecha: 24, arriba: 18, abajo: 38 };
+    const anchoUtil = ancho - margen.izquierda - margen.derecha;
+    const altoUtil = alto - margen.arriba - margen.abajo;
+    const maximo = Math.max(100, ...ordenados.map(item => item.porcentaje));
+    const techo = Math.ceil(maximo / 25) * 25 || 100;
+    const x = indice => margen.izquierda + (ordenados.length === 1 ? anchoUtil / 2 : indice * anchoUtil / (ordenados.length - 1));
+    const y = porcentaje => margen.arriba + altoUtil - (Math.min(porcentaje, techo) / techo * altoUtil);
+    const puntos = ordenados.map((item, indice) => `${x(indice)},${y(item.porcentaje)}`).join(' ');
+    const metaY = y(100);
+    const guias = [0, 50, 100, techo].filter((valor, indice, lista) => valor <= techo && lista.indexOf(valor) === indice)
+        .map(valor => `<line x1="${margen.izquierda}" y1="${y(valor)}" x2="${ancho - margen.derecha}" y2="${y(valor)}" stroke="#cbd5e1" stroke-dasharray="3 4"/><text x="${margen.izquierda - 8}" y="${y(valor) + 4}" text-anchor="end">${valor}%</text>`).join('');
+    const elementos = ordenados.map((item, indice) => `<g>
+        <circle class="met-news-point" cx="${x(indice)}" cy="${y(item.porcentaje)}" r="6"><title>${_formatearNumeroMet(item.actual)}${item.unidad ? ` ${_escaparHtmlMet(item.unidad)}` : ''} · ${_formatearNumeroMet(item.porcentaje, 1)}%</title></circle>
+        <text x="${x(indice)}" y="${alto - 12}" text-anchor="middle" font-weight="700">${_escaparHtmlMet(item.item)}</text>
+    </g>`).join('');
+    return `<svg class="met-news-progress-chart" style="width:${ancho}px" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Porcentaje mensual por actividad">
+        ${guias}
+        <line class="met-news-target" x1="${margen.izquierda}" y1="${metaY}" x2="${ancho - margen.derecha}" y2="${metaY}"/>
+        <text x="${ancho - margen.derecha}" y="${metaY - 7}" text-anchor="end" fill="#dc2626" font-weight="800">META 100%</text>
+        <polyline class="met-news-series" points="${puntos}"/>
+        ${elementos}
+    </svg>`;
 }
 
 async function _cargarFotosNoticiasMet() {
@@ -1250,15 +1284,9 @@ function _seleccionarFotosNoticiasMet(ranking) {
             foto: item.actual > 0 ? indice.get(`${tramoActivoMet}|${item.clave}`) : null
         }))
         .filter(item => item.foto);
-    const mayores = preparar(ranking.mayores, 'MAYOR');
     const menores = preparar(ranking.menores, 'MENOR');
-    const seleccion = [];
-    const cantidad = Math.max(mayores.length, menores.length);
-    for (let i = 0; i < cantidad && seleccion.length < 10; i++) {
-        if (mayores[i]) seleccion.push(mayores[i]);
-        if (seleccion.length < 10 && menores[i]) seleccion.push(menores[i]);
-    }
-    return seleccion;
+    const mayores = preparar(ranking.mayores, 'MAYOR');
+    return [...menores, ...mayores].slice(0, 10);
 }
 
 async function _cargarMiniaturasNoticiasMet(ids) {
@@ -1394,6 +1422,7 @@ async function actualizarNoticiasMet() {
     }
     if ($m('met-news-top-high')) $m('met-news-top-high').innerHTML = _htmlRankingNoticiasMet(ranking.mayores, 'mayor');
     if ($m('met-news-top-low')) $m('met-news-top-low').innerHTML = _htmlRankingNoticiasMet(ranking.menores, 'menor');
+    if ($m('met-news-progress-chart')) $m('met-news-progress-chart').innerHTML = _htmlGraficoNoticiasMet(ranking.actividades);
     fotosCarruselNoticiasMet = seleccion;
     paginaCarruselNoticiasMet = 0;
     _renderizarCarruselNoticiasMet();
@@ -1529,11 +1558,13 @@ function renderizarTablaMet() {
     construirCabecerasMet();
     const tbody = $m('met-tabla-body');
     const info = $m('met-table-info');
+    const total = $m('met-table-total');
     if (!tbody) return;
     tbody.innerHTML = '';
     if (!filtradosMetrados.length) {
         tbody.innerHTML = '<tr><td colspan="10" class="text-center py-12 text-slate-500">No se encontraron resultados para el filtro general.</td></tr>';
         if (info) info.textContent = '0 registros';
+        if (total) total.textContent = filtroGeneralMet.actividad === 'ALL' ? '—' : 'Σ 0';
         return;
     }
     const fragmento = document.createDocumentFragment();
@@ -1555,6 +1586,20 @@ function renderizarTablaMet() {
     });
     tbody.appendChild(fragmento);
     if (info) info.textContent = `${filtradosMetrados.length.toLocaleString('es-PE')} registros · ${tramoActivoMet} · ${_etiquetaMesMapaMet(filtroGeneralMet.desde)} a ${_etiquetaMesMapaMet(filtroGeneralMet.hasta)}`;
+    if (total) {
+        if (filtroGeneralMet.actividad === 'ALL') {
+            total.textContent = '—';
+            total.title = 'Seleccione una actividad específica para sumar sus metrados.';
+        } else {
+            const suma = filtradosMetrados.reduce((acumulado, fila) => {
+                const valor = _numeroFlexibleMapaMet(fila.metrado);
+                return acumulado + (Number.isFinite(valor) ? valor : 0);
+            }, 0);
+            const unidad = filtradosMetrados.find(fila => String(fila.unidad || '').trim())?.unidad || '';
+            total.textContent = `Σ ${_formatearNumeroMet(suma)}${unidad ? ` ${unidad}` : ''}`;
+            total.title = `Suma de metrados para ${filtroGeneralMet.actividad}`;
+        }
+    }
 }
 
 // ==========================================
