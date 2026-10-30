@@ -383,17 +383,24 @@ function normalizarLineaBusquedaRegistro(valor) {
         .trim();
 }
 
+function prepararBusquedaDescripcionRegistro(valor) {
+    const frasesExactas = [];
+    const textoRestante = String(valor || '').replace(/["“]([^"”]+)["”]/g, (_, frase) => {
+        frasesExactas.push(normalizarLineaBusquedaRegistro(frase));
+        return ' ';
+    });
+    const palabrasParciales = textoRestante.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    return { frasesExactas, palabrasParciales };
+}
+
 function aplicarFiltros() {
     const valGrupo = dom.fGrupo.value;
     const valUsuario = dom.fUsuario.value;
     const valDescOriginal = dom.fDescripcion.value.trim();
-    const coincidenciaExacta = valDescOriginal.match(/^["“](.*)["”]$/);
-    const valDesc = valDescOriginal.toLowerCase();
     const valFechaOp = dom.fFechaOp.value;
     const valFechaVal = dom.fFechaVal.value;
 
-    const textoExacto = coincidenciaExacta ? normalizarLineaBusquedaRegistro(coincidenciaExacta[1]) : '';
-    const palabrasDesc = !coincidenciaExacta && valDesc ? valDesc.split(/\s+/) : [];
+    const busquedaDescripcion = prepararBusquedaDescripcionRegistro(valDescOriginal);
 
     // ==============================================================
     // Guardar filtros actuales en sessionStorage
@@ -409,9 +416,9 @@ function aplicarFiltros() {
         const matchUsuario = valUsuario === 'ALL' || d.usuario === valUsuario;
         
         const descMinuscula = d.descripcion.toLowerCase();
-        const matchDesc = coincidenciaExacta
-            ? d.descripcion.split(/\r?\n/).some(linea => normalizarLineaBusquedaRegistro(linea) === textoExacto)
-            : (palabrasDesc.length === 0 || palabrasDesc.every(p => descMinuscula.includes(p)));
+        const lineasDescripcion = d.descripcion.split(/\r?\n/).map(normalizarLineaBusquedaRegistro);
+        const matchDesc = busquedaDescripcion.frasesExactas.every(frase => lineasDescripcion.includes(frase)) &&
+            busquedaDescripcion.palabrasParciales.every(palabra => descMinuscula.includes(palabra));
         
         let matchFecha = true;
         if (valFechaOp !== 'ALL' && valFechaVal) {
