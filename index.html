@@ -757,8 +757,7 @@
                 <div id="met-news-main" class="min-h-full flex flex-col gap-4">
                     <div class="flex flex-wrap items-end justify-between gap-3">
                         <div>
-                            <h2 class="text-xl font-bold text-slate-900">Noticias del tramo</h2>
-                            <p id="met-news-subtitle" class="text-sm text-slate-500">Resumen del último mes disponible y comparación mensual.</p>
+                            <h2 id="met-news-title" class="text-[40px] leading-none font-black text-[#1d4ed8]">NOTICIAS DEL TRAMO</h2>
                         </div>
                         <div id="met-news-tramo" class="px-4 py-2 rounded-full bg-[#0b132b] text-white text-xs font-bold">TRAMO I</div>
                     </div>
@@ -787,14 +786,14 @@
                             <div class="met-news-rank-grid grid grid-cols-1 xl:grid-cols-2 gap-4 h-[480px] min-h-0">
                             <article class="min-h-0 bg-white border border-emerald-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div class="px-5 py-4 bg-emerald-50 border-b border-emerald-200">
-                                    <h3 class="font-extrabold text-emerald-900">Top 10 · mayor avance mensual</h3>
+                                    <h3 id="met-news-top-high-title" class="font-extrabold text-emerald-900">Top 10 · mayor avance mensual</h3>
                                     <p class="text-xs text-emerald-700 mt-0.5">Metrado del mes respecto a su meta mensual</p>
                                 </div>
                                 <div id="met-news-top-high" class="met-news-rank-scroll"></div>
                             </article>
                             <article class="min-h-0 bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                                 <div class="px-5 py-4 bg-red-50 border-b border-red-200">
-                                    <h3 class="font-extrabold text-red-900">Top 10 · menor avance mensual</h3>
+                                    <h3 id="met-news-top-low-title" class="font-extrabold text-red-900">Top 10 · menor avance mensual</h3>
                                     <p class="text-xs text-red-700 mt-0.5">Incluye actividades con avance cero</p>
                                 </div>
                                 <div id="met-news-top-low" class="met-news-rank-scroll"></div>
@@ -802,9 +801,8 @@
                             </div>
 
                             <article class="h-[480px] bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-                                <div class="shrink-0 px-5 py-4 border-b border-slate-200">
-                                    <h3 class="font-extrabold text-slate-900">Avance mensual por actividad</h3>
-                                    <p class="text-xs text-slate-500 mt-0.5">El número corresponde al ITEM de la hoja ACTIVIDADES · línea roja: meta del 100%</p>
+                                <div class="shrink-0 px-5 py-3 border-b border-slate-200">
+                                    <h3 id="met-news-chart-title" class="font-extrabold text-slate-900">Avance mensual por actividad</h3>
                                 </div>
                                 <div class="met-news-chart-shell flex-1 min-h-0 m-3 mt-2">
                                     <div id="met-news-chart-axis" class="met-news-chart-axis"></div>
@@ -923,6 +921,6 @@
     <!-- Script principal -->
 <script src="script.js?v=18"></script>
     <script src="asistencia.js?v=2"></script>
-    <script src="metrados.js?v=40"></script>
+    <script src="metrados.js?v=41"></script>
 </body>
 </html>

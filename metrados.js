@@ -1433,10 +1433,12 @@ async function actualizarNoticiasMet() {
     if (token !== tokenNoticiasMet || subvistaActivaMet !== 'noticias') return;
 
     if ($m('met-news-tramo')) $m('met-news-tramo').textContent = tramoActivoMet;
-    if ($m('met-news-subtitle')) {
-        const anterior = ranking.periodoAnterior ? ` frente a ${_etiquetaMesMapaMet(ranking.periodoAnterior)}` : '';
-        $m('met-news-subtitle').textContent = `${_etiquetaMesMapaMet(ranking.periodoActual)}${anterior} · avance respecto a la meta mensual`;
-    }
+    const numeroMesNoticias = Number(String(ranking.periodoActual).slice(5, 7));
+    const mesNoticias = (MESES_NOMBRE_MET[numeroMesNoticias - 1] || '').toUpperCase();
+    if ($m('met-news-title')) $m('met-news-title').textContent = `NOTICIAS DEL TRAMO (${mesNoticias})`;
+    if ($m('met-news-top-high-title')) $m('met-news-top-high-title').textContent = `Top 10 · mayor avance mensual (${mesNoticias})`;
+    if ($m('met-news-top-low-title')) $m('met-news-top-low-title').textContent = `Top 10 · menor avance mensual (${mesNoticias})`;
+    if ($m('met-news-chart-title')) $m('met-news-chart-title').textContent = `Avance mensual por actividad (${mesNoticias})`;
     if ($m('met-news-top-high')) $m('met-news-top-high').innerHTML = _htmlRankingNoticiasMet(ranking.mayores, 'mayor');
     if ($m('met-news-top-low')) $m('met-news-top-low').innerHTML = _htmlRankingNoticiasMet(ranking.menores, 'menor');
     _renderizarGraficoNoticiasMet(ranking.actividades);
