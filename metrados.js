@@ -59,6 +59,7 @@ const INTERVALO_CARRUSEL_NOTICIAS_MET = 7000;
 let datosProyeccionMet = [];
 let proyeccionCargadaMet = false;
 let cargaProyeccionMet = null;
+let actividadFiltroProyeccionMet = 'ALL';
 
 // ==========================================
 // SELECTORES DOM (acceso lazy)
@@ -1571,23 +1572,30 @@ async function actualizarProyeccionMet(forzar = false) {
 function renderizarProyeccionMet() {
     const cuerpo = $m('met-proy-body');
     if (!cuerpo) return;
-    const filas = datosProyeccionMet.filter(fila => fila.tramo === tramoActivoMet);
-    const vencidas = filas.filter(fila => fila.estado === 'VENCIDA').length;
-    const proximas = filas.filter(fila => fila.estado === 'PROXIMA').length;
-    const confianzaAlta = filas.filter(fila => fila.confianza === 'ALTA').length;
+    const filasTramo = datosProyeccionMet.filter(fila => fila.tramo === tramoActivoMet);
+    _renderizarFiltroActividadProyeccionMet(filasTramo);
+    const filas = actividadFiltroProyeccionMet === 'ALL'
+        ? filasTramo
+        : filasTramo.filter(fila => fila.actividad === actividadFiltroProyeccionMet);
+    const vencidas = filasTramo.filter(fila => fila.estado === 'VENCIDA').length;
+    const proximas = filasTramo.filter(fila => fila.estado === 'PROXIMA').length;
+    const confianzaAlta = filasTramo.filter(fila => fila.confianza === 'ALTA').length;
 
     if ($m('met-proy-tramo')) $m('met-proy-tramo').textContent = tramoActivoMet;
-    if ($m('met-proy-total')) $m('met-proy-total').textContent = filas.length.toLocaleString('es-PE');
+    if ($m('met-proy-total')) $m('met-proy-total').textContent = filasTramo.length.toLocaleString('es-PE');
     if ($m('met-proy-vencidas')) $m('met-proy-vencidas').textContent = vencidas.toLocaleString('es-PE');
     if ($m('met-proy-proximas')) $m('met-proy-proximas').textContent = proximas.toLocaleString('es-PE');
     if ($m('met-proy-confianza')) $m('met-proy-confianza').textContent = confianzaAlta.toLocaleString('es-PE');
     if ($m('met-proy-updated')) {
-        const fecha = filas.find(fila => fila.fechaAnalisis)?.fechaAnalisis || datosProyeccionMet[0]?.fechaAnalisis || '';
+        const fecha = filasTramo.find(fila => fila.fechaAnalisis)?.fechaAnalisis || datosProyeccionMet[0]?.fechaAnalisis || '';
         $m('met-proy-updated').textContent = fecha ? `Análisis: ${fecha}` : '';
     }
 
     if (!filas.length) {
-        cuerpo.innerHTML = '<tr><td colspan="10" class="py-14 text-center text-slate-500">No existen propuestas para este tramo.</td></tr>';
+        const mensaje = filasTramo.length
+            ? 'No existen propuestas para la actividad seleccionada.'
+            : 'No existen propuestas para este tramo.';
+        cuerpo.innerHTML = `<tr><td colspan="10" class="py-14 text-center text-slate-500">${mensaje}</td></tr>`;
         return;
     }
 
@@ -1609,6 +1617,66 @@ function renderizarProyeccionMet() {
             <td class="px-3 py-3 text-center font-bold">${_escaparHtmlMet(fila.confianza)}</td>
         </tr>`;
     }).join('');
+}
+
+function _renderizarFiltroActividadProyeccionMet(filasTramo) {
+    const opciones = $m('met-proy-filter-options');
+    const boton = $m('met-proy-filter-button');
+    const etiqueta = $m('met-proy-filter-label');
+    if (!opciones || !boton || !etiqueta) return;
+
+    const resumen = new Map();
+    filasTramo.forEach(fila => {
+        const actual = resumen.get(fila.actividad) || {
+            actividad: fila.actividad,
+            item: fila.itemActividad,
+            cantidad: 0
+        };
+        actual.cantidad++;
+        resumen.set(fila.actividad, actual);
+    });
+    const actividades = [...resumen.values()].sort((a, b) => {
+        const numeroA = Number(a.item);
+        const numeroB = Number(b.item);
+        if (Number.isFinite(numeroA) && Number.isFinite(numeroB) && numeroA !== numeroB) return numeroA - numeroB;
+        return String(a.item).localeCompare(String(b.item), 'es', { numeric: true });
+    });
+
+    if (actividadFiltroProyeccionMet !== 'ALL' && !resumen.has(actividadFiltroProyeccionMet)) {
+        actividadFiltroProyeccionMet = 'ALL';
+    }
+    const seleccion = actividadFiltroProyeccionMet === 'ALL'
+        ? null
+        : resumen.get(actividadFiltroProyeccionMet);
+
+    etiqueta.textContent = seleccion
+        ? `${seleccion.item} · ${seleccion.actividad}`
+        : 'Todas las actividades';
+    boton.classList.toggle('active', Boolean(seleccion));
+
+    const opcionTodas = `<button type="button" class="met-proy-filter-option ${seleccion ? '' : 'selected'}" data-proy-activity="ALL">
+        <span class="font-black">—</span><span class="font-bold">Todas las actividades</span><span class="met-proy-filter-count">${filasTramo.length}</span>
+    </button>`;
+    opciones.innerHTML = opcionTodas + actividades.map(item => `
+        <button type="button" class="met-proy-filter-option ${item.actividad === actividadFiltroProyeccionMet ? 'selected' : ''}" data-proy-activity="${_escaparHtmlMet(item.actividad)}">
+            <span class="font-black text-right">${_escaparHtmlMet(item.item)}</span>
+            <span>${_escaparHtmlMet(item.actividad)}</span>
+            <span class="met-proy-filter-count">${item.cantidad}</span>
+        </button>`).join('');
+}
+
+function _cerrarFiltroActividadProyeccionMet() {
+    const menu = $m('met-proy-filter-menu');
+    menu?.classList.add('hidden');
+    $m('met-proy-filter-button')?.setAttribute('aria-expanded', 'false');
+}
+
+function _alternarFiltroActividadProyeccionMet() {
+    const menu = $m('met-proy-filter-menu');
+    if (!menu) return;
+    const abrir = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', !abrir);
+    $m('met-proy-filter-button')?.setAttribute('aria-expanded', String(abrir));
 }
 
 async function generarProyeccionDesdeLeoMet() {
@@ -1648,6 +1716,8 @@ async function generarProyeccionDesdeLeoMet() {
 function seleccionarTramoMapaMet(tramo) {
     if (!TRAMOS_MET.includes(tramo)) return;
     tramoActivoMet = tramo;
+    actividadFiltroProyeccionMet = 'ALL';
+    _cerrarFiltroActividadProyeccionMet();
     document.querySelectorAll('.met-tramo-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tramo === tramo));
     aplicarFiltrosMet(true);
     if (subvistaActivaMet === 'noticias') actualizarNoticiasMet();
@@ -1731,6 +1801,20 @@ function configurarEventosMet() {
     $m('met-news-carousel')?.addEventListener('mouseenter', _detenerCarruselNoticiasMet);
     $m('met-news-carousel')?.addEventListener('mouseleave', _iniciarCarruselNoticiasMet);
     $m('met-proy-generar')?.addEventListener('click', generarProyeccionDesdeLeoMet);
+    $m('met-proy-filter-button')?.addEventListener('click', evento => {
+        evento.stopPropagation();
+        _alternarFiltroActividadProyeccionMet();
+    });
+    $m('met-proy-filter-options')?.addEventListener('click', evento => {
+        const opcion = evento.target.closest('[data-proy-activity]');
+        if (!opcion) return;
+        actividadFiltroProyeccionMet = opcion.dataset.proyActivity || 'ALL';
+        _cerrarFiltroActividadProyeccionMet();
+        renderizarProyeccionMet();
+    });
+    document.addEventListener('click', evento => {
+        if (!$m('met-proy-filter-wrap')?.contains(evento.target)) _cerrarFiltroActividadProyeccionMet();
+    });
     $m('met-table-scroller')?.addEventListener('scroll', _alinearTotalTablaMet, { passive: true });
     window.addEventListener('resize', _alinearTotalTablaMet, { passive: true });
 }
