@@ -1,7 +1,7 @@
 // ==========================================
 // MÓDULO METRADOS
 // Visualización acumulada desde MET ACUM.
-// La exportación continúa leyendo exclusivamente la hoja METRADOS.
+// La exportación utiliza la misma subbase filtrada que alimenta TABLA.
 // ==========================================
 
 const METRADOS_SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
@@ -161,43 +161,6 @@ function procesarDatosMetrados(raw) {
             fotoDespues
         };
     });
-}
-
-function _leerRegistrosParaExcelMet() {
-    // Excel no se construye desde la tabla renderizada ni desde el CSV que
-    // procesa PapaParse. Se consulta la respuesta estructurada de Google
-    // Sheets, cuya propiedad table.rows conserva una entrada por cada fila.
-    const url = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:json&sheet=METRADOS&_export=${Date.now()}`;
-    return fetch(url)
-        .then(resp => {
-            if (!resp.ok) throw new Error(`Google Sheets respondió HTTP ${resp.status}`);
-            return resp.text();
-        })
-        .then(texto => {
-            const inicio = texto.indexOf('{');
-            const fin = texto.lastIndexOf('}');
-            if (inicio < 0 || fin < inicio) throw new Error('Respuesta inválida de Google Sheets.');
-
-            const tabla = JSON.parse(texto.slice(inicio, fin + 1)).table;
-            const encabezados = tabla.cols.map(col => String(col.label || '').trim());
-            const filas = tabla.rows || [];
-            const datosCrudos = filas.map(fila => {
-                const registro = {};
-                encabezados.forEach((encabezado, indice) => {
-                    if (!encabezado) return;
-                    const celda = fila.c?.[indice];
-                    // f conserva exactamente el texto mostrado por Sheets:
-                    // fechas, progresivas como 16+000 y números formateados.
-                    registro[encabezado] = celda ? (celda.f ?? celda.v ?? '') : '';
-                });
-                return registro;
-            });
-            const registros = procesarDatosMetrados(datosCrudos);
-            if (registros.length !== filas.length) {
-                throw new Error(`Control de integridad falló: Sheets entregó ${filas.length} filas y se prepararon ${registros.length}.`);
-            }
-            return registros.sort((a, b) => a.ordenHoja - b.ordenHoja);
-        });
 }
 
 function _extraerDriveIdMet(valor) {
@@ -1930,65 +1893,179 @@ function renderizarTablaMet() {
 // ==========================================
 // EXPORTACIÓN EXCEL
 // ==========================================
-async function exportarXLSXMet() {
-    const btn = document.getElementById('btn-export-metrados');
-    const origText = btn ? btn.innerHTML : '';
-    try {
-        if (btn) { btn.innerHTML = 'Leyendo METRADOS...'; btn.disabled = true; }
-        const registros = await _leerRegistrosParaExcelMet();
-        if (registros.length === 0) { alert('No hay registros para exportar.'); return; }
+function _cerrarMenuExportacionMet() {
+    $m('met-export-menu')?.classList.add('hidden');
+    $m('btn-export-metrados')?.setAttribute('aria-expanded', 'false');
+}
 
-        if (btn) btn.innerHTML = 'Construyendo Excel...';
-        const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet('METRADOS');
-        ws.columns = [
-            { header: 'FECHA',        key: 'fecha',     width: 14 },
-            { header: 'ACTIVIDAD',    key: 'actividad', width: 16 },
-            { header: 'PARTIDA',      key: 'partida',   width: 42 },
-            { header: 'KM INICIAL',   key: 'kmi',       width: 14 },
-            { header: 'KM FINAL',     key: 'kmf',       width: 14 },
-            { header: 'LADO',         key: 'lado',      width: 10 },
-            { header: 'METRADO',      key: 'metrado',   width: 12 },
-            { header: 'UNIDAD',       key: 'unidad',    width: 10 },
-            { header: 'TRAMO',        key: 'tramo',     width: 14 },
-            { header: 'FOTO_ANTES',   key: 'fotoA',     width: 22 },
-            { header: 'FOTO_DURANTE', key: 'fotoD',     width: 22 },
-            { header: 'FOTO_DESPUES', key: 'fotoE',     width: 22 },
-        ];
-        const hr = ws.getRow(1);
-        hr.height = 25;
-        hr.eachCell(cell => {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B132B' } };
-            cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
-            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+function _filasExportacionTramoMet(tramo) {
+    return subBaseFiltradaMet
+        .filter(fila => tramoSubBaseMet.get(fila) === tramo)
+        .sort((a, b) => a.ordenHoja - b.ordenHoja);
+}
+
+function _nombreExcelTramoMet(tramo) {
+    const fecha = new Date().toISOString().slice(0, 10);
+    return `Metrados_${tramo.replace(/\s+/g, '_')}_${fecha}.xlsx`;
+}
+
+async function _crearExcelTramoMet(tramo, registros) {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'LEO Gestión';
+    wb.created = new Date();
+    const ws = wb.addWorksheet('METRADOS', { views: [{ state: 'frozen', ySplit: 4 }] });
+    ws.columns = [
+        { key: 'fecha', width: 14 }, { key: 'actividad', width: 18 },
+        { key: 'partida', width: 48 }, { key: 'kmi', width: 14 },
+        { key: 'kmf', width: 14 }, { key: 'lado', width: 11 },
+        { key: 'metrado', width: 14 }, { key: 'unidad', width: 11 },
+        { key: 'tramo', width: 14 }, { key: 'grupo', width: 13 }
+    ];
+
+    ws.mergeCells('A1:J1');
+    const titulo = ws.getCell('A1');
+    titulo.value = `METRADOS · ${tramo}`;
+    titulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B132B' } };
+    titulo.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 16 };
+    titulo.alignment = { vertical: 'middle', horizontal: 'center' };
+    ws.getRow(1).height = 32;
+
+    ws.mergeCells('A2:J2');
+    const detalle = ws.getCell('A2');
+    const actividad = filtroGeneralMet.actividad === 'ALL' ? 'Todas las actividades' : filtroGeneralMet.actividad;
+    detalle.value = `${actividad} · ${_etiquetaMesMapaMet(filtroGeneralMet.desde)} a ${_etiquetaMesMapaMet(filtroGeneralMet.hasta)} · ${registros.length} registro(s)`;
+    detalle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+    detalle.font = { bold: true, color: { argb: 'FF1D4ED8' }, size: 10 };
+    detalle.alignment = { vertical: 'middle', horizontal: 'center' };
+    ws.getRow(2).height = 24;
+
+    const encabezados = ['FECHA', 'ACTIVIDAD', 'PARTIDA', 'KM INICIAL', 'KM FINAL', 'LADO', 'METRADO', 'UNIDAD', 'TRAMO', 'GRUPO'];
+    const filaEncabezado = ws.getRow(4);
+    filaEncabezado.values = encabezados;
+    filaEncabezado.height = 26;
+    filaEncabezado.eachCell(celda => {
+        celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D4ED8' } };
+        celda.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+        celda.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        celda.border = { bottom: { style: 'medium', color: { argb: 'FF0B132B' } } };
+    });
+
+    registros.forEach((dato, indice) => {
+        const metrado = _numeroFlexibleMapaMet(dato.metrado);
+        const fila = ws.addRow({
+            fecha: dato.fecha,
+            actividad: dato.actividad,
+            partida: dato.partida,
+            kmi: _progresivaParaExcelMet(dato.kmInicial),
+            kmf: _progresivaParaExcelMet(dato.kmFinal),
+            lado: dato.lado,
+            metrado: Number.isFinite(metrado) ? metrado : dato.metrado,
+            unidad: dato.unidad,
+            tramo: tramoSubBaseMet.get(dato) || dato.tramo || tramo,
+            grupo: dato.grupo
         });
-        registros.forEach((d, i) => {
-            const row = ws.addRow({
-                fecha: d.fecha, actividad: d.actividad, partida: d.partida,
-                kmi: _progresivaParaExcelMet(d.kmInicial),
-                kmf: _progresivaParaExcelMet(d.kmFinal), lado: d.lado, metrado: d.metrado,
-                unidad: d.unidad, tramo: d.tramo,
-                fotoA: _refFotoMet(d, 'antes')   ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'antes')) } : '',
-                fotoD: _refFotoMet(d, 'durante') ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'durante')) } : '',
-                fotoE: _refFotoMet(d, 'despues') ? { text: 'DESCARGAR FOTO', hyperlink: _enlaceDescargaFotoMet(_refFotoMet(d, 'despues')) } : ''
-            });
-            row.height = 22;
-            row.eachCell(cell => {
-                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-                cell.border = { top: { style:'thin', color:{argb:'FFCBCFD8'} }, bottom: { style:'thin', color:{argb:'FFCBCFD8'} }, left: { style:'thin', color:{argb:'FFCBCFD8'} }, right: { style:'thin', color:{argb:'FFCBCFD8'} } };
-                if (i % 2 === 1) cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8FAFC' } };
-            });
-            // D y E: valor numérico real (p. ej. 15200), con vista vial 15+200.
-            row.getCell('kmi').numFmt = '0"+"000';
-            row.getCell('kmf').numFmt = '0"+"000';
+        fila.height = 22;
+        fila.eachCell((celda, columna) => {
+            celda.alignment = {
+                vertical: 'middle',
+                horizontal: columna === 3 ? 'left' : 'center',
+                wrapText: columna === 3
+            };
+            celda.border = {
+                top: { style: 'thin', color: { argb: 'FFD8DEE9' } },
+                bottom: { style: 'thin', color: { argb: 'FFD8DEE9' } },
+                left: { style: 'thin', color: { argb: 'FFD8DEE9' } },
+                right: { style: 'thin', color: { argb: 'FFD8DEE9' } }
+            };
+            if (indice % 2 === 1) celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
         });
-        ws.views = [{ state: 'frozen', ySplit: 1 }];
-        const buffer = await wb.xlsx.writeBuffer();
-        saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `Metrados_${new Date().toISOString().slice(0,10)}.xlsx`);
-        console.info(`Excel METRADOS generado con ${registros.length} registros en orden de hoja.`);
-        alert(`Excel generado con ${registros.length} registros de METRADOS.`);
-    } catch(e) { console.error(e); alert('Error al generar Excel: ' + e.message); }
-    finally { if (btn) { btn.innerHTML = origText; btn.disabled = false; } }
+        fila.getCell(4).numFmt = '0"+"000';
+        fila.getCell(5).numFmt = '0"+"000';
+        fila.getCell(7).numFmt = '#,##0.###';
+    });
+
+    ws.autoFilter = { from: 'A4', to: 'J4' };
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+    return wb.xlsx.writeBuffer();
+}
+
+async function _guardarExcelMet(buffer, nombre, directorio = null, archivoElegido = null) {
+    if (archivoElegido) {
+        const escritura = await archivoElegido.createWritable();
+        await escritura.write(buffer);
+        await escritura.close();
+        return;
+    }
+    if (directorio) {
+        const archivo = await directorio.getFileHandle(nombre, { create: true });
+        const escritura = await archivo.createWritable();
+        await escritura.write(buffer);
+        await escritura.close();
+        return;
+    }
+    if (window.showSaveFilePicker) {
+        const archivo = await window.showSaveFilePicker({
+            suggestedName: nombre,
+            types: [{
+                description: 'Libro de Excel',
+                accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+            }]
+        });
+        const escritura = await archivo.createWritable();
+        await escritura.write(buffer);
+        await escritura.close();
+        return;
+    }
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombre);
+}
+
+async function exportarXLSXMet(alcance = 'actual') {
+    const btn = $m('btn-export-metrados');
+    const contenidoOriginal = btn?.innerHTML || '';
+    _cerrarMenuExportacionMet();
+    try {
+        const tramos = alcance === 'todos' ? TRAMOS_MET : [tramoActivoMet];
+        const grupos = tramos.map(tramo => ({ tramo, registros: _filasExportacionTramoMet(tramo) }));
+        if (alcance === 'actual' && grupos[0].registros.length === 0) {
+            alert('No hay registros visibles en la TABLA para exportar.');
+            return;
+        }
+
+        let directorio = null;
+        let archivoElegido = null;
+        if (alcance === 'todos' && window.showDirectoryPicker) {
+            directorio = await window.showDirectoryPicker({ mode: 'readwrite' });
+        } else if (alcance === 'actual' && window.showSaveFilePicker) {
+            archivoElegido = await window.showSaveFilePicker({
+                suggestedName: _nombreExcelTramoMet(tramoActivoMet),
+                types: [{
+                    description: 'Libro de Excel',
+                    accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+                }]
+            });
+        }
+
+        if (btn) { btn.disabled = true; btn.textContent = 'GENERANDO EXCEL...'; }
+        for (const grupo of grupos) {
+            const nombre = _nombreExcelTramoMet(grupo.tramo);
+            const buffer = await _crearExcelTramoMet(grupo.tramo, grupo.registros);
+            if (alcance === 'todos' && !directorio) {
+                saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nombre);
+            } else {
+                await _guardarExcelMet(buffer, nombre, directorio, archivoElegido);
+            }
+        }
+        alert(alcance === 'todos'
+            ? 'Se generaron 7 archivos Excel, uno por cada tramo.'
+            : `Excel generado con ${grupos[0].registros.length} registro(s) de ${tramoActivoMet}.`);
+    } catch (error) {
+        if (error?.name !== 'AbortError') {
+            console.error(error);
+            alert('Error al generar Excel: ' + (error.message || error));
+        }
+    } finally {
+        if (btn) { btn.innerHTML = contenidoOriginal; btn.disabled = false; }
+    }
 }
 
 // ==========================================
@@ -1996,5 +2073,18 @@ async function exportarXLSXMet() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     configurarEventosMet();
-    $m('btn-export-metrados')?.addEventListener('click', exportarXLSXMet);
+    $m('btn-export-metrados')?.addEventListener('click', evento => {
+        evento.stopPropagation();
+        const menu = $m('met-export-menu');
+        const abierto = !menu?.classList.contains('hidden');
+        menu?.classList.toggle('hidden', abierto);
+        evento.currentTarget.setAttribute('aria-expanded', String(!abierto));
+    });
+    $m('met-export-menu')?.addEventListener('click', evento => {
+        const opcion = evento.target.closest('[data-met-export-scope]');
+        if (opcion) exportarXLSXMet(opcion.dataset.metExportScope);
+    });
+    document.addEventListener('click', evento => {
+        if (!$m('met-export-wrap')?.contains(evento.target)) _cerrarMenuExportacionMet();
+    });
 });
