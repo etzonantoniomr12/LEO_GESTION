@@ -211,6 +211,13 @@
         .met-news-legend-divider { margin: 4px 0; border-top: 1px dashed #94a3b8; }
         #met-table-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0b132b; font-size: 24px; line-height: 1; }
         #met-table-total .met-total-value { margin-left: auto; text-align: right; white-space: nowrap; }
+        .met-proy-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 14px rgba(15,23,42,.06); }
+        .met-proy-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 900; }
+        .met-proy-badge.vencida { background: #fee2e2; color: #991b1b; }
+        .met-proy-badge.proxima { background: #fef3c7; color: #92400e; }
+        .met-proy-table th { position: sticky; top: 0; z-index: 5; background: #0b132b; color: white; }
+        .met-proy-table tbody tr:nth-child(even) { background: #f8fafc; }
+        .met-proy-table tbody tr:hover { background: #eff6ff; }
         @media (max-width: 767px) {
             #met-panel-noticias { overflow-y: auto; }
             #met-news-layout { display: block; height: auto; }
@@ -821,6 +828,57 @@
             </div>
         </main>
             </section>
+
+            <!-- PROYECCIÓN -->
+            <section id="met-panel-proyeccion" class="hidden absolute inset-0 overflow-auto bg-slate-50 p-4 md:p-6">
+                <div class="max-w-[1600px] mx-auto space-y-4">
+                    <div class="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                            <h2 class="text-xl font-bold text-slate-900">Proyección estadística</h2>
+                            <p class="text-sm text-slate-500">Actividades próximas o vencidas según su frecuencia histórica por subtramo de 100 m.</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span id="met-proy-tramo" class="px-4 py-2 rounded-full bg-[#0b132b] text-white text-xs font-bold">TRAMO I</span>
+                            <button id="met-proy-generar" type="button" class="px-5 py-2.5 rounded-lg bg-[#0b132b] text-white text-xs font-extrabold hover:bg-[#1c2541] disabled:opacity-50 disabled:cursor-wait">ACTUALIZAR PROYECCIÓN</button>
+                        </div>
+                    </div>
+
+                    <div id="met-proy-message" class="hidden rounded-xl border px-4 py-3 text-sm font-semibold"></div>
+
+                    <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                        <article class="met-proy-card p-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-500">Propuestas</p><p id="met-proy-total" class="mt-1 text-3xl font-black text-[#0b132b]">0</p></article>
+                        <article class="met-proy-card p-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-500">Vencidas</p><p id="met-proy-vencidas" class="mt-1 text-3xl font-black text-red-700">0</p></article>
+                        <article class="met-proy-card p-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-500">Próximas</p><p id="met-proy-proximas" class="mt-1 text-3xl font-black text-amber-600">0</p></article>
+                        <article class="met-proy-card p-4"><p class="text-xs font-bold uppercase tracking-wide text-slate-500">Confianza alta</p><p id="met-proy-confianza" class="mt-1 text-3xl font-black text-emerald-700">0</p></article>
+                    </div>
+
+                    <div class="met-proy-card overflow-hidden">
+                        <div class="px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between gap-2">
+                            <div><h3 class="font-extrabold text-slate-900">Actividades propuestas</h3><p class="text-xs text-slate-500">Recomendación estadística sujeta a validación técnica en campo.</p></div>
+                            <p id="met-proy-updated" class="text-xs font-semibold text-slate-500"></p>
+                        </div>
+                        <div class="overflow-auto max-h-[calc(100vh-370px)] min-h-[260px]">
+                            <table class="met-proy-table w-full min-w-[1200px] border-collapse text-xs">
+                                <thead>
+                                    <tr>
+                                        <th class="px-3 py-3 text-center">Estado</th>
+                                        <th class="px-3 py-3 text-center">Prioridad</th>
+                                        <th class="px-3 py-3 text-center">Ítem</th>
+                                        <th class="px-4 py-3 text-left min-w-[300px]">Actividad</th>
+                                        <th class="px-3 py-3 text-center">Subtramo</th>
+                                        <th class="px-3 py-3 text-center">Última ejecución</th>
+                                        <th class="px-3 py-3 text-center">Frecuencia</th>
+                                        <th class="px-3 py-3 text-center">Fecha propuesta</th>
+                                        <th class="px-3 py-3 text-center">Atraso</th>
+                                        <th class="px-3 py-3 text-center">Confianza</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="met-proy-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </div>
 
         <!-- Pestañas inferiores -->
@@ -829,12 +887,13 @@
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="mapa">MAPA</button>
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="analisis">ANÁLISIS</button>
             <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="tabla">TABLA</button>
+            <button class="met-view-tab min-w-[110px] px-5 py-2 rounded-lg border border-slate-200 text-xs font-bold transition" data-met-view="proyeccion">PROYECCIÓN</button>
         </nav>
     </div> <!-- End view-metrados -->
 
     <!-- Script principal -->
 <script src="script.js?v=18"></script>
     <script src="asistencia.js?v=2"></script>
-<script src="metrados.js?v=34"></script>
+    <script src="metrados.js?v=37"></script>
 </body>
 </html>

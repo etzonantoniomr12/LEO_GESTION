@@ -8,6 +8,9 @@ const METRADOS_SHEET_ID = '1njOr6ofptBELf1Ja7Hw4w7HakcOqqkagAnZta4nBGVA';
 const MET_ACUM_CSV_URL  = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/export?format=csv&gid=1620245158`;
 const ACTIVIDADES_CSV_URL = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/export?format=csv&gid=1734814133`;
 const REPORTE_FOTOS_CSV_URL_MET = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=REPORTE_FOTOS`;
+const PROYECCION_CSV_URL_MET = `https://docs.google.com/spreadsheets/d/${METRADOS_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=PROYECCION`;
+const PROYECCION_WEB_APP_URL_MET = 'https://script.google.com/macros/s/AKfycbwA-MrgbwJBpwPV_kT7If6pSDQFNYHmyVDSvPKkYh8EAjhqAj1g-RzN26EsLEWVEkY5OA/exec';
+const PROYECCION_TOKEN_MET = '84edc423a67b49c8a033601e091b4b09b9e3a10be1004f57b9856683bb0a785d';
 const EJES_TRAMOS_CSV_URL = 'CSV HITOS Y EJE/EJES_TRAMOS.csv';
 const HITOS_REALES_CSV_URL = 'CSV HITOS Y EJE/HITOS_REALES.csv';
 const CRS_UTM_18S_MET = '+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs';
@@ -53,6 +56,9 @@ let paginaCarruselNoticiasMet = 0;
 let temporizadorCarruselNoticiasMet = null;
 const miniaturasNoticiasMet = new Map();
 const INTERVALO_CARRUSEL_NOTICIAS_MET = 7000;
+let datosProyeccionMet = [];
+let proyeccionCargadaMet = false;
+let cargaProyeccionMet = null;
 
 // ==========================================
 // SELECTORES DOM (acceso lazy)
@@ -1468,30 +1474,204 @@ async function actualizarNoticiasMet() {
     _iniciarCarruselNoticiasMet();
 }
 
+// ==========================================
+// PROYECCIÓN ESTADÍSTICA
+// ==========================================
+function _normalizarFilaProyeccionMet(fila) {
+    const normalizada = {};
+    Object.entries(fila || {}).forEach(([clave, valor]) => {
+        normalizada[String(clave).replace(/^\uFEFF/, '').trim().toUpperCase()] = valor;
+    });
+    const texto = nombre => String(normalizada[nombre] ?? '').trim();
+    const numero = nombre => _numeroFlexibleMapaMet(normalizada[nombre]);
+    return {
+        itemProyeccion: texto('ITEM_PROYECCION'),
+        tramo: texto('TRAMO').toUpperCase(),
+        kmInicial: _numeroKmMet(normalizada.KM_INICIAL),
+        kmFinal: _numeroKmMet(normalizada.KM_FINAL),
+        itemActividad: texto('ITEM_ACTIVIDAD'),
+        actividad: texto('ACTIVIDAD'),
+        unidad: texto('UNIDAD'),
+        tipo: texto('TIPO'),
+        registros: numero('REGISTROS'),
+        intervenciones: numero('INTERVENCIONES'),
+        ultimaEjecucion: texto('ULTIMA_EJECUCION'),
+        frecuenciaDias: numero('FRECUENCIA_DIAS'),
+        fechaPropuesta: texto('FECHA_PROPUESTA'),
+        diasAtraso: numero('DIAS_ATRASO'),
+        prioridad: texto('PRIORIDAD').toUpperCase(),
+        confianza: texto('CONFIANZA').toUpperCase(),
+        estado: texto('ESTADO').toUpperCase(),
+        fechaAnalisis: texto('FECHA_ANALISIS')
+    };
+}
+
+function _leerHojaProyeccionMet() {
+    return new Promise((resolve, reject) => {
+        Papa.parse(`${PROYECCION_CSV_URL_MET}&_=${Date.now()}`, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: resultado => {
+                const filas = (resultado.data || [])
+                    .map(_normalizarFilaProyeccionMet)
+                    .filter(fila => fila.actividad && TRAMOS_MET.includes(fila.tramo));
+                resolve(filas);
+            },
+            error: error => reject(new Error(error?.message || 'No se pudo leer la hoja PROYECCION.'))
+        });
+    });
+}
+
+function _mensajeProyeccionMet(texto, tipo = 'info') {
+    const mensaje = $m('met-proy-message');
+    if (!mensaje) return;
+    if (!texto) {
+        mensaje.classList.add('hidden');
+        return;
+    }
+    const estilos = {
+        info: ['bg-sky-50', 'border-sky-200', 'text-sky-800'],
+        ok: ['bg-emerald-50', 'border-emerald-200', 'text-emerald-800'],
+        error: ['bg-red-50', 'border-red-200', 'text-red-800']
+    };
+    mensaje.className = `rounded-xl border px-4 py-3 text-sm font-semibold ${(estilos[tipo] || estilos.info).join(' ')}`;
+    mensaje.textContent = texto;
+}
+
+async function actualizarProyeccionMet(forzar = false) {
+    if (subvistaActivaMet !== 'proyeccion') return;
+    if (proyeccionCargadaMet && !forzar) {
+        renderizarProyeccionMet();
+        return;
+    }
+    if (cargaProyeccionMet && !forzar) return cargaProyeccionMet;
+
+    const cuerpo = $m('met-proy-body');
+    if (cuerpo) cuerpo.innerHTML = '<tr><td colspan="10" class="py-12 text-center text-slate-500">Cargando proyección...</td></tr>';
+    _mensajeProyeccionMet('Consultando la hoja PROYECCION...', 'info');
+
+    cargaProyeccionMet = _leerHojaProyeccionMet()
+        .then(filas => {
+            datosProyeccionMet = filas;
+            proyeccionCargadaMet = true;
+            _mensajeProyeccionMet('', 'info');
+            renderizarProyeccionMet();
+        })
+        .catch(error => {
+            console.error('Error al cargar PROYECCION:', error);
+            _mensajeProyeccionMet(`No se pudo cargar PROYECCION: ${error.message || error}`, 'error');
+            if (cuerpo) cuerpo.innerHTML = '<tr><td colspan="10" class="py-12 text-center text-red-600">No se pudo cargar la información.</td></tr>';
+        })
+        .finally(() => { cargaProyeccionMet = null; });
+
+    return cargaProyeccionMet;
+}
+
+function renderizarProyeccionMet() {
+    const cuerpo = $m('met-proy-body');
+    if (!cuerpo) return;
+    const filas = datosProyeccionMet.filter(fila => fila.tramo === tramoActivoMet);
+    const vencidas = filas.filter(fila => fila.estado === 'VENCIDA').length;
+    const proximas = filas.filter(fila => fila.estado === 'PROXIMA').length;
+    const confianzaAlta = filas.filter(fila => fila.confianza === 'ALTA').length;
+
+    if ($m('met-proy-tramo')) $m('met-proy-tramo').textContent = tramoActivoMet;
+    if ($m('met-proy-total')) $m('met-proy-total').textContent = filas.length.toLocaleString('es-PE');
+    if ($m('met-proy-vencidas')) $m('met-proy-vencidas').textContent = vencidas.toLocaleString('es-PE');
+    if ($m('met-proy-proximas')) $m('met-proy-proximas').textContent = proximas.toLocaleString('es-PE');
+    if ($m('met-proy-confianza')) $m('met-proy-confianza').textContent = confianzaAlta.toLocaleString('es-PE');
+    if ($m('met-proy-updated')) {
+        const fecha = filas.find(fila => fila.fechaAnalisis)?.fechaAnalisis || datosProyeccionMet[0]?.fechaAnalisis || '';
+        $m('met-proy-updated').textContent = fecha ? `Análisis: ${fecha}` : '';
+    }
+
+    if (!filas.length) {
+        cuerpo.innerHTML = '<tr><td colspan="10" class="py-14 text-center text-slate-500">No existen propuestas para este tramo.</td></tr>';
+        return;
+    }
+
+    cuerpo.innerHTML = filas.map(fila => {
+        const estadoClase = fila.estado === 'VENCIDA' ? 'vencida' : 'proxima';
+        const atraso = fila.estado === 'VENCIDA' && Number.isFinite(fila.diasAtraso)
+            ? `${_formatearNumeroMet(fila.diasAtraso, 0)} días`
+            : '—';
+        return `<tr class="border-b border-slate-200 text-slate-700">
+            <td class="px-3 py-3 text-center"><span class="met-proy-badge ${estadoClase}">${_escaparHtmlMet(fila.estado)}</span></td>
+            <td class="px-3 py-3 text-center font-extrabold text-[#0b132b]">${_escaparHtmlMet(fila.prioridad)}</td>
+            <td class="px-3 py-3 text-center font-black">${_escaparHtmlMet(fila.itemActividad)}</td>
+            <td class="px-4 py-3 font-semibold text-slate-900">${_escaparHtmlMet(fila.actividad)}</td>
+            <td class="px-3 py-3 text-center whitespace-nowrap font-bold">${_formatearProgMapaMet(fila.kmInicial)} – ${_formatearProgMapaMet(fila.kmFinal)}</td>
+            <td class="px-3 py-3 text-center whitespace-nowrap">${_escaparHtmlMet(fila.ultimaEjecucion)}</td>
+            <td class="px-3 py-3 text-center whitespace-nowrap">${_formatearNumeroMet(fila.frecuenciaDias, 0)} días</td>
+            <td class="px-3 py-3 text-center whitespace-nowrap font-bold">${_escaparHtmlMet(fila.fechaPropuesta)}</td>
+            <td class="px-3 py-3 text-center whitespace-nowrap ${fila.estado === 'VENCIDA' ? 'font-bold text-red-700' : ''}">${atraso}</td>
+            <td class="px-3 py-3 text-center font-bold">${_escaparHtmlMet(fila.confianza)}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function generarProyeccionDesdeLeoMet() {
+    const boton = $m('met-proy-generar');
+    const textoOriginal = boton?.textContent || 'ACTUALIZAR PROYECCIÓN';
+    if (boton) {
+        boton.disabled = true;
+        boton.textContent = 'GENERANDO...';
+    }
+    _mensajeProyeccionMet('Apps Script está analizando el historial. Espere...', 'info');
+
+    try {
+        const respuesta = await fetch(PROYECCION_WEB_APP_URL_MET, {
+            method: 'POST',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+            body: JSON.stringify({ accion: 'GENERAR_PROYECCION', token: PROYECCION_TOKEN_MET })
+        });
+        if (!respuesta.ok) throw new Error(`Apps Script respondió HTTP ${respuesta.status}`);
+        const resultado = await respuesta.json();
+        if (!resultado.ok) throw new Error(resultado.mensaje || resultado.error || 'Apps Script no completó la operación.');
+
+        proyeccionCargadaMet = false;
+        await actualizarProyeccionMet(true);
+        _mensajeProyeccionMet(`${resultado.propuestasGeneradas ?? 0} propuestas generadas correctamente.`, 'ok');
+    } catch (error) {
+        console.error('No se pudo generar PROYECCION:', error);
+        _mensajeProyeccionMet(`No se pudo actualizar la proyección: ${error.message || error}`, 'error');
+    } finally {
+        if (boton) {
+            boton.disabled = false;
+            boton.textContent = textoOriginal;
+        }
+    }
+}
+
 function seleccionarTramoMapaMet(tramo) {
     if (!TRAMOS_MET.includes(tramo)) return;
     tramoActivoMet = tramo;
     document.querySelectorAll('.met-tramo-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tramo === tramo));
     aplicarFiltrosMet(true);
     if (subvistaActivaMet === 'noticias') actualizarNoticiasMet();
+    if (subvistaActivaMet === 'proyeccion') renderizarProyeccionMet();
 }
 
 function cambiarSubvistaMet(vista) {
-    if (!['mapa', 'analisis', 'tabla', 'noticias'].includes(vista)) return;
+    if (!['mapa', 'analisis', 'tabla', 'noticias', 'proyeccion'].includes(vista)) return;
     subvistaActivaMet = vista;
     if (vista !== 'noticias') _detenerCarruselNoticiasMet();
     document.querySelectorAll('.met-view-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.metView === vista));
-    ['mapa', 'analisis', 'tabla', 'noticias'].forEach(nombre => {
+    ['mapa', 'analisis', 'tabla', 'noticias', 'proyeccion'].forEach(nombre => {
         const panel = $m(`met-panel-${nombre}`);
         if (!panel) return;
         const activo = nombre === vista;
         panel.classList.toggle('hidden', !activo);
         if (nombre === 'tabla') panel.classList.toggle('flex', activo);
     });
-    $m('met-control-panel')?.classList.toggle('hidden', vista === 'noticias');
+    $m('met-control-panel')?.classList.toggle('hidden', vista === 'noticias' || vista === 'proyeccion');
     if (vista === 'mapa') setTimeout(() => mapaMet?.invalidateSize(), 50);
     if (vista === 'analisis') actualizarAnalisisMapaMet();
+    if (vista === 'tabla') requestAnimationFrame(_alinearTotalTablaMet);
     if (vista === 'noticias') actualizarNoticiasMet();
+    if (vista === 'proyeccion') actualizarProyeccionMet();
 }
 
 function asegurarMapaMetradosVisible() {
@@ -1550,6 +1730,7 @@ function configurarEventosMet() {
     });
     $m('met-news-carousel')?.addEventListener('mouseenter', _detenerCarruselNoticiasMet);
     $m('met-news-carousel')?.addEventListener('mouseleave', _iniciarCarruselNoticiasMet);
+    $m('met-proy-generar')?.addEventListener('click', generarProyeccionDesdeLeoMet);
     $m('met-table-scroller')?.addEventListener('scroll', _alinearTotalTablaMet, { passive: true });
     window.addEventListener('resize', _alinearTotalTablaMet, { passive: true });
 }
@@ -1598,6 +1779,9 @@ function _alinearTotalTablaMet() {
     if (!total || !cabecera || !pie) return;
     const rectCabecera = cabecera.getBoundingClientRect();
     const rectPie = pie.getBoundingClientRect();
+    // La tabla se renderiza mientras su pestaña puede estar oculta. En ese
+    // estado el navegador devuelve medidas en cero y no deben guardarse.
+    if (!rectCabecera.width || !rectPie.width) return;
     total.style.left = `${rectCabecera.left + rectCabecera.width / 2 - rectPie.left}px`;
     total.style.width = `${Math.max(190, rectCabecera.width - 12)}px`;
 }
