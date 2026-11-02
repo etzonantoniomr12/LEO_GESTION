@@ -152,6 +152,9 @@ function procesarDatosMetrados(raw) {
             metrado:           valor('METRADO'),
             unidad:            valor('UNIDAD'),
             tramo:             valor('TRAMO'),
+            horasOperacion:    valor('MOTO HH', 'HORAS', 'HH'),
+            tipoOperacion:     valor('DETALLE DE OPERACIÓN', 'DETALLE DE OPERACION', 'OPERACIÓN', 'OPERACION'),
+            notaOperacion:     valor('NOTA'),
             // Referencias de fotos usadas únicamente al exportar METRADOS.
             driveIdAntes:      idAntes || _extraerDriveIdMet(fotoAntes),
             driveIdDurante:    idDurante || _extraerDriveIdMet(fotoDurante),
@@ -1263,6 +1266,118 @@ function _renderizarGraficoNoticiasMet(items) {
     etiquetaMeta.style.top = `${metaY / alto * 100}%`;
 }
 
+function _fechaOrdenNoticiasMet(valor) {
+    const texto = String(valor || '').trim();
+    let coincidencia = texto.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (coincidencia) return Date.UTC(Number(coincidencia[1]), Number(coincidencia[2]) - 1, Number(coincidencia[3]));
+    coincidencia = texto.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (coincidencia) return Date.UTC(Number(coincidencia[3]), Number(coincidencia[2]) - 1, Number(coincidencia[1]));
+    const fecha = new Date(texto);
+    return Number.isNaN(fecha.getTime()) ? Number.MAX_SAFE_INTEGER : fecha.getTime();
+}
+
+function _diaFechaNoticiasMet(valor) {
+    const texto = String(valor || '').trim();
+    let coincidencia = texto.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (coincidencia) return String(Number(coincidencia[3]));
+    coincidencia = texto.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (coincidencia) return String(Number(coincidencia[1]));
+    const fecha = new Date(texto);
+    return Number.isNaN(fecha.getTime()) ? texto : String(fecha.getDate());
+}
+
+function _datosRatiosNoticiasMet(periodo) {
+    return datosMetrados.map(registro => {
+        if (_mesClaveMapaMet(registro.fecha) !== periodo) return null;
+        const tramo = _tramoDeclaradoMet(registro.tramo) || _tramoPorKmInicialMapaMet(_numeroKmMet(registro.kmInicial))?.nombre;
+        if (tramo !== tramoActivoMet) return null;
+        const metrado = _numeroFlexibleMapaMet(registro.metrado);
+        const horas = _numeroFlexibleMapaMet(registro.horasOperacion);
+        const operacion = String(registro.tipoOperacion || '').trim();
+        if (!Number.isFinite(metrado) || !Number.isFinite(horas) || horas <= 0 || !operacion) return null;
+        return {
+            ...registro,
+            metradoNumero: metrado,
+            horasNumero: horas,
+            operacion,
+            ratio: metrado / horas,
+            fechaOrden: _fechaOrdenNoticiasMet(registro.fecha),
+            dia: _diaFechaNoticiasMet(registro.fecha)
+        };
+    }).filter(Boolean).sort((a, b) => a.fechaOrden - b.fechaOrden || a.ordenHoja - b.ordenHoja);
+}
+
+function _renderizarGraficoRatiosNoticiasMet(periodo, mesNoticias) {
+    const tarjeta = $m('met-news-ratios-card');
+    const contenedor = $m('met-news-ratios-chart');
+    const eje = $m('met-news-ratios-axis');
+    const titulo = $m('met-news-ratios-title');
+    const leyenda = $m('met-news-ratios-legend');
+    const promedios = $m('met-news-ratios-averages');
+    if (!tarjeta || !contenedor || !eje || !titulo || !leyenda || !promedios) return;
+
+    const registros = _datosRatiosNoticiasMet(periodo);
+    tarjeta.classList.toggle('hidden', registros.length === 0);
+    if (!registros.length) {
+        contenedor.innerHTML = '';
+        eje.innerHTML = '';
+        leyenda.innerHTML = '';
+        promedios.innerHTML = '';
+        return;
+    }
+
+    titulo.textContent = `RATIOS POR DÍA VS DÍAS (${mesNoticias})`;
+    const colores = ['#38bdf8', '#fbbf24', '#34d399', '#fb7185', '#c084fc', '#fb923c', '#22d3ee', '#a3e635'];
+    const operaciones = [...new Set(registros.map(item => item.operacion))];
+    const colorOperacion = new Map(operaciones.map((operacion, indice) => [operacion, colores[indice % colores.length]]));
+    const unidadRatio = unidad => `${String(unidad || 'u').trim()}/h`;
+    const unidadesEje = [...new Set(registros.map(item => unidadRatio(item.unidad)))];
+    const unidadEje = unidadesEje.length === 1 ? unidadesEje[0] : 'u/h';
+    leyenda.innerHTML = operaciones.map(operacion => `<span class="met-news-ratio-legend-item"><i style="background:${colorOperacion.get(operacion)}"></i>${_escaparHtmlMet(operacion)}</span>`).join('');
+    promedios.innerHTML = `<p class="met-news-ratio-average-title">PROMEDIO DEL RATIO</p>${operaciones.map(operacion => {
+        const registrosOperacion = registros.filter(item => item.operacion === operacion);
+        const valores = registrosOperacion.map(item => item.ratio);
+        const promedio = valores.reduce((total, valor) => total + valor, 0) / valores.length;
+        const unidadPromedio = unidadRatio(registrosOperacion[0]?.unidad);
+        return `<div class="met-news-ratio-average-row"><span><i style="background:${colorOperacion.get(operacion)}"></i>${_escaparHtmlMet(operacion)}</span><b style="color:${colorOperacion.get(operacion)}">${_formatearNumeroMet(promedio, 2)} ${_escaparHtmlMet(unidadPromedio)}</b></div>`;
+    }).join('')}`;
+
+    const ancho = Math.max(900, registros.length * 70);
+    const alto = 400;
+    const margen = { izquierda: 18, derecha: 24, arriba: 18, abajo: 42 };
+    const anchoUtil = ancho - margen.izquierda - margen.derecha;
+    const altoUtil = alto - margen.arriba - margen.abajo;
+    const maximo = Math.max(...registros.map(item => item.ratio));
+    const techo = maximo > 0 ? Math.ceil(maximo * 1.1 * 10) / 10 : 1;
+    const x = indice => margen.izquierda + (registros.length === 1 ? anchoUtil / 2 : indice * anchoUtil / (registros.length - 1));
+    const y = valor => margen.arriba + altoUtil - (Math.max(0, valor) / techo * altoUtil);
+    const baseY = alto - margen.abajo;
+    const niveles = [0, techo * 0.25, techo * 0.5, techo * 0.75, techo];
+    const grillaHorizontal = niveles.map(valor => `<line x1="${margen.izquierda}" y1="${y(valor)}" x2="${ancho - margen.derecha}" y2="${y(valor)}" stroke="#294366" stroke-width="1"/>`).join('');
+    const grillaVertical = registros.map((_, indice) => `<line x1="${x(indice)}" y1="${margen.arriba}" x2="${x(indice)}" y2="${baseY}" stroke="#1d3557" stroke-width="1"/>`).join('');
+    const lineas = operaciones.map(operacion => {
+        const puntos = registros.map((item, indice) => ({ item, indice })).filter(({ item }) => item.operacion === operacion);
+        if (puntos.length < 2) return '';
+        return `<polyline points="${puntos.map(({ item, indice }) => `${x(indice)},${y(item.ratio)}`).join(' ')}" fill="none" stroke="${colorOperacion.get(operacion)}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }).join('');
+    const puntos = registros.map((item, indice) => {
+        const inicio = _formatearProgMapaMet(_numeroKmMet(item.kmInicial));
+        const final = _formatearProgMapaMet(_numeroKmMet(item.kmFinal));
+        const detalle = [
+            `OPERACIÓN: ${item.operacion}`,
+            `METRADO: ${_formatearNumeroMet(item.metradoNumero)}${item.unidad ? ` ${item.unidad}` : ''}`,
+            `RANGO: KM ${inicio} - KM ${final}`,
+            `FECHA: ${item.fecha || '-'}`,
+            `NOTA: ${item.notaOperacion || '-'}`,
+            `RATIO: ${_formatearNumeroMet(item.ratio, 2)} ${unidadRatio(item.unidad)}`
+        ].map(_escaparHtmlMet).join('&#10;');
+        return `<g><circle cx="${x(indice)}" cy="${y(item.ratio)}" r="6" fill="${colorOperacion.get(item.operacion)}" stroke="#fff" stroke-width="2"><title>${detalle}</title></circle><text x="${x(indice)}" y="${alto - 14}" text-anchor="middle" font-weight="700">${_escaparHtmlMet(item.dia)}</text></g>`;
+    }).join('');
+
+    contenedor.innerHTML = `<svg class="met-news-progress-chart met-news-ratios-svg" style="width:${ancho}px" viewBox="0 0 ${ancho} ${alto}" role="img" aria-label="Ratios diarios por tipo de operación">${grillaHorizontal}${grillaVertical}<line x1="${margen.izquierda}" y1="${baseY}" x2="${ancho - margen.derecha}" y2="${baseY}" stroke="#cbd5e1" stroke-width="1.5"/>${lineas}${puntos}</svg>`;
+    eje.innerHTML = [...niveles].reverse().map(valor => `<span class="met-news-chart-axis-label met-news-ratio-axis-label" style="top:${(1 - valor / techo) * 100}%">${_formatearNumeroMet(valor, 2)} ${_escaparHtmlMet(unidadEje)}</span>`).join('');
+}
+
 async function _cargarFotosNoticiasMet() {
     if (fotosNoticiasMet.length) return fotosNoticiasMet;
     if (cargaFotosNoticiasMet) return cargaFotosNoticiasMet;
@@ -1442,6 +1557,7 @@ async function actualizarNoticiasMet() {
     if ($m('met-news-top-high')) $m('met-news-top-high').innerHTML = _htmlRankingNoticiasMet(ranking.mayores, 'mayor');
     if ($m('met-news-top-low')) $m('met-news-top-low').innerHTML = _htmlRankingNoticiasMet(ranking.menores, 'menor');
     _renderizarGraficoNoticiasMet(ranking.actividades);
+    _renderizarGraficoRatiosNoticiasMet(ranking.periodoActual, mesNoticias);
     fotosCarruselNoticiasMet = seleccion;
     paginaCarruselNoticiasMet = 0;
     _renderizarCarruselNoticiasMet();

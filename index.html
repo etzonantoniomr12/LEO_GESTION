@@ -210,6 +210,22 @@
         .met-news-legend-row { display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 7px; align-items: start; padding: 4px 2px; color: #334155; font-size: 10px; line-height: 1.2; }
         .met-news-legend-item { color: #0b132b; font-weight: 900; text-align: right; }
         .met-news-legend-divider { margin: 4px 0; border-top: 1px dashed #94a3b8; }
+        .met-news-ratios-card { background: #0b132b; border-color: #1d3557; }
+        .met-news-ratios-header { min-height: 50px; background: #101d3b; border-color: #294366; }
+        .met-news-ratios-legend { display: flex; justify-content: flex-end; align-items: center; gap: 8px 14px; flex-wrap: wrap; color: #dbeafe; font-size: 10px; line-height: 1.2; }
+        .met-news-ratio-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .met-news-ratio-legend-item i { width: 25px; height: 3px; border-radius: 999px; flex: none; }
+        .met-news-ratios-shell { background: #101d3b; border-color: #294366; }
+        .met-news-ratios-shell .met-news-chart-axis { background: rgba(16,29,59,.98); border-color: #64748b; }
+        .met-news-ratio-axis-label { color: #dbeafe; }
+        .met-news-ratios-shell .met-news-chart-scroller { background: #101d3b; }
+        .met-news-ratios-svg text { fill: #dbeafe; }
+        .met-news-ratio-averages { position: absolute; z-index: 18; top: 12px; right: 14px; width: min(360px, calc(100% - 100px)); max-height: 145px; overflow-y: auto; padding: 9px 11px; border: 1px solid rgba(148,163,184,.55); border-radius: 10px; background: rgba(11,19,43,.92); box-shadow: 0 8px 20px rgba(2,6,23,.3); color: #e2e8f0; backdrop-filter: blur(5px); }
+        .met-news-ratio-average-title { margin-bottom: 5px; color: #fff; font-size: 10px; font-weight: 900; letter-spacing: .04em; }
+        .met-news-ratio-average-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 10px; line-height: 1.25; }
+        .met-news-ratio-average-row span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .met-news-ratio-average-row span i { width: 18px; height: 3px; border-radius: 999px; flex: none; }
+        .met-news-ratio-average-row b { flex: none; font-size: 11px; }
         #met-table-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0b132b; font-size: 24px; line-height: 1; }
         #met-table-total .met-total-value { margin-left: auto; text-align: right; white-space: nowrap; }
         .met-proy-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 4px 14px rgba(15,23,42,.06); }
@@ -812,6 +828,18 @@
                                     <div class="met-news-chart-scroller"><div id="met-news-progress-chart" class="h-full min-h-0"></div></div>
                                 </div>
                             </article>
+
+                            <article id="met-news-ratios-card" class="met-news-ratios-card hidden h-[480px] border rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                                <div class="met-news-ratios-header shrink-0 px-5 py-3 border-b flex items-center justify-between gap-5">
+                                    <h3 id="met-news-ratios-title" class="font-extrabold text-white whitespace-nowrap">RATIOS POR DÍA VS DÍAS</h3>
+                                    <div id="met-news-ratios-legend" class="met-news-ratios-legend"></div>
+                                </div>
+                                <div class="met-news-chart-shell met-news-ratios-shell flex-1 min-h-0 m-3 mt-2">
+                                    <div id="met-news-ratios-averages" class="met-news-ratio-averages"></div>
+                                    <div id="met-news-ratios-axis" class="met-news-chart-axis"></div>
+                                    <div class="met-news-chart-scroller"><div id="met-news-ratios-chart" class="h-full min-h-0"></div></div>
+                                </div>
+                            </article>
                         </div>
                     </div>
                     <div id="met-news-empty" class="hidden min-h-[360px] bg-white border border-dashed border-slate-300 rounded-2xl place-items-center text-center p-8 text-slate-500"></div>
@@ -923,6 +951,6 @@
     <!-- Script principal -->
 <script src="script.js?v=23"></script>
     <script src="asistencia.js?v=2"></script>
-    <script src="metrados.js?v=41"></script>
+    <script src="metrados.js?v=45"></script>
 </body>
 </html>
