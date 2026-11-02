@@ -1547,10 +1547,9 @@ async function actualizarNoticiasMet() {
     }
     if (token !== tokenNoticiasMet || subvistaActivaMet !== 'noticias') return;
 
-    if ($m('met-news-tramo')) $m('met-news-tramo').textContent = tramoActivoMet;
     const numeroMesNoticias = Number(String(ranking.periodoActual).slice(5, 7));
     const mesNoticias = (MESES_NOMBRE_MET[numeroMesNoticias - 1] || '').toUpperCase();
-    if ($m('met-news-title')) $m('met-news-title').textContent = `NOTICIAS DEL TRAMO (${mesNoticias})`;
+    if ($m('met-news-title')) $m('met-news-title').textContent = `NOTICIAS DEL ${tramoActivoMet} (${mesNoticias})`;
     if ($m('met-news-top-high-title')) $m('met-news-top-high-title').textContent = `Top 10 · mayor avance mensual (${mesNoticias})`;
     if ($m('met-news-top-low-title')) $m('met-news-top-low-title').textContent = `Top 10 · menor avance mensual (${mesNoticias})`;
     if ($m('met-news-chart-title')) $m('met-news-chart-title').textContent = `Avance mensual por actividad (${mesNoticias})`;
